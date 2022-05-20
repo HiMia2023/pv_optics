@@ -129,10 +129,10 @@ dmypy.json
 .pyre/
 
 # data folders (allowing a couple of specific files as examples)
-illumination/
+illumination/*
 !illumination/am15g.tsv
 
-refractive_index/
+refractive_index/*
 !refractive_index/air.tsv
 
 input/
