@@ -130,7 +130,7 @@ dmypy.json
 
 # data folders (allowing a couple of specific files as examples)
 illumination/*
-!illumination/am15g.tsv
+!illumination/black-body_5800K.tsv
 
 refractive_index/*
 !refractive_index/air.tsv
