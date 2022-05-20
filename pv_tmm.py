@@ -90,7 +90,7 @@ def load_illumination_data(filepath):
         Scipy interpolation object for spectral irradiance.
     """
     # load data
-    data = np.genfromtxt(filepath, skip_header=1, delimiter="\t")
+    data = np.genfromtxt(filepath, skip_header=3, delimiter="\t")
 
     return scipy.interpolate.interp1d(data[:, 0], data[:, 1], kind="cubic")
 
