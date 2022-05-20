@@ -1,7 +1,8 @@
 """Calculate optical absorption and carrier generatation rate in a PV device stack."""
 
-import time
+import os
 import pathlib
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,6 +20,9 @@ INPUT_FOLDER = APPLICATION_FOLDER.joinpath("input")
 OUTPUT_FOLDER = APPLICATION_FOLDER.joinpath("output")
 FILE_EXT = "tsv"
 
+if OUTPUT_FOLDER.exists() is False:
+    os.mkdir(OUTPUT_FOLDER)
+
 
 def wavelength_to_energy(wavelength):
     """Convert wavelength/s in nm to energy in eV.
@@ -31,9 +35,27 @@ def wavelength_to_energy(wavelength):
     Returns
     -------
     E : float or array
-        Energy/s in eV.
+        Energy/s in J.
     """
-    return (Planck / elementary_charge) * speed_of_light / (wavelength * 1e-9)
+    return Planck * speed_of_light / (wavelength * 1e-9)
+
+
+def load_settings(filename):
+    """Load a settings file.
+
+    A settings file is a yaml file whose keys correspond to arguments of the
+    `run_tmm()` function.
+
+    Parameters
+    ----------
+    filename : str
+        Name of settings file.
+
+    Returns
+    settings : dict
+        Dictionary of settings to be passed to the `run_tmm()` function.
+    """
+    pass
 
 
 def load_nk_data(filepath):
@@ -302,20 +324,26 @@ def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
         Integrated absorption profile in each coherent layer.
     """
     abs_x_pol = np.array([])
-    abs_x_pol_int = np.array([])
+    abs_x_pol_int = []
     for cix, coh in enumerate(c_list):
         # only calculate absorption profile for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            layer_x_list = np.linspace(0, thickness, dx)
+            n_x = int((thickness / dx) + 1)
+            layer_x_list = np.linspace(0, thickness, n_x)
             layer_abs_an = inc_find_absorp_analytic_fn(cix, inc_tmm_pol)
-            layer_abs_x = layer_abs_an.run(layer_x_list)
+
+            # calculate absorption profile
+            # returns a complex number with 0 imaginary part so discard it
+            layer_abs_x = layer_abs_an.run(layer_x_list).real
+
+            # integrate absorption profile for sanity check against tmm output
             layer_abs_x_int = scipy.integrate.simpson(layer_abs_x, layer_x_list)
 
             abs_x_pol = np.concatenate((abs_x_pol, layer_abs_x))
-            abs_x_pol_int = np.concatenate((abs_x_pol_int, layer_abs_x_int))
+            abs_x_pol_int.append(layer_abs_x_int)
 
-    return abs_x_pol, abs_x_pol_int
+    return abs_x_pol, np.array(abs_x_pol_int)
 
 
 def get_x_list(c_list, d_list, dx):
@@ -335,14 +363,16 @@ def get_x_list(c_list, d_list, dx):
     x_list : np.array
         X positions in nm at which generation profile is calculated.
     """
-    x_list = np.array([])
+    x_list = []
+    cum_thickness = 0
     for cix, coh in enumerate(c_list):
         # only calculate positions for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            layer_x_list = np.linspace(0, thickness, dx)
-
+            n_x = int((thickness / dx) + 1)
+            layer_x_list = np.linspace(cum_thickness, cum_thickness + thickness, n_x)
             x_list = np.concatenate([x_list, layer_x_list])
+            cum_thickness += thickness
 
     return x_list
 
@@ -393,7 +423,8 @@ def plot_rta(rta):
     rta : array
         Reflection, transmission, and absorption spectra from tmm calculations.
     """
-    fig, ax1 = plt.subplots(figsize=(8, 4))
+    # fig, ax1 = plt.subplots(figsize=(8, 4))
+    fig, ax1 = plt.subplots()
 
     cum_sum = np.zeros(np.shape(rta)[0])
     for col in range(1, np.shape(rta)[1]):
@@ -439,7 +470,8 @@ def plot_eqe(rta, active_layer_ix, c_list=None, abs_x_int=None):
         between tmm absorption calculation and position resolved absorption
         calculation.
     """
-    fig, ax1 = plt.subplots(figsize=(8, 4))
+    # fig, ax1 = plt.subplots(figsize=(8, 4))
+    fig, ax1 = plt.subplots()
 
     ax1.plot(rta[:, 0], rta[:, active_layer_ix + 1], label="tmm absorption")
 
@@ -473,14 +505,15 @@ def plot_generation_profile(x_list, gen_x):
     gen_x : dict
         Carrier generation rate profiles. Dictionary keys are wavelengths in nm.
     """
-    fig, ax1 = plt.subplots(figsize=(8, 4))
+    # fig, ax1 = plt.subplots(figsize=(8, 4))
+    fig, ax1 = plt.subplots()
 
     for wavelength, gen_x_wl in gen_x.items():
         ax1.plot(x_list, gen_x_wl, label=f"{wavelength} nm")
 
     ax1.set_xlim(np.min(x_list), np.max(x_list))
     ax1.set_ylim(0)
-    ax1.set_ylabel("Carrier generation rate (cm^-3)")
+    ax1.set_ylabel("Carrier generation rate (m^-3)")
     ax1.set_xlabel("Distance (nm)")
     ax1.legend(loc="upper left", bbox_to_anchor=(1.01, 1))
 
@@ -501,8 +534,10 @@ def export_rta(rta, layers, timestamp):
     timestamp : int
         Calculation time stamp.
     """
+    os.mkdir(OUTPUT_FOLDER.joinpath(f"{timestamp}"))
+
     path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
-        f"{timestamp}_{rta}.{FILE_EXT}"
+        f"{timestamp}_rta.{FILE_EXT}"
     )
 
     header = "wavelength (nm)\t" + "\t".join(layers)
@@ -525,7 +560,7 @@ def export_generation_profiles(x_list, gen_x, timestamp):
     timestamp : int
         Calculation time stamp.
     """
-    header = "distance (nm)\tG (cm^-3)"
+    header = "distance (nm)\tG (m^-3)"
 
     for wavelength, gen in gen_x.items():
         path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
@@ -541,7 +576,7 @@ def export_generation_profiles(x_list, gen_x, timestamp):
             delimiter="\t",
             newline="\n",
             comments="",
-            fmt="%.9f",
+            fmt="%.9e",
         )
 
 
@@ -691,9 +726,7 @@ def run_tmm(
 
     # calculate generation profiles for each wavelegnth
     if (profiles is True) and (illumination is not None):
-        illumination_path = REFRACTIVE_INDEX_FOLDER.joinpath(
-            f"{illumination}.{FILE_EXT}"
-        )
+        illumination_path = ILLUMINATION_FOLDER.joinpath(f"{illumination}.{FILE_EXT}")
         illumination_data = load_illumination_data(illumination_path)
 
         gen_x_s = {}
@@ -759,6 +792,9 @@ def run_tmm(
         if (profiles is True) and (illumination is not None):
             export_generation_profiles(x_list, gen_x, timestamp)
 
+    # make sure plot windows don't close
+    plt.show()
+
     return {
         "layers": layers,
         "d_list": d_list,
@@ -769,7 +805,7 @@ def run_tmm(
         "th_0": th_0,
         "s_fraction": s_fraction,
         "p_fraction": p_fraction,
-        "active_layer": active_layer,
+        "active_layer_name": active_layer_name,
         "show_plots": show_plots,
         "profiles": profiles,
         "dx": profiles,
@@ -791,7 +827,7 @@ if __name__ == "__main__":
         "au",
         "air",
     ]
-    active_layer = "wbg-perovskite"
+    active_layer_name = "wbg-perovskite"
 
     # thickness in nm for each layer in layers
     d_list = [np.inf, 1.1e6, 110, 20, 500, 30, 10, 100, np.inf]
@@ -801,14 +837,14 @@ if __name__ == "__main__":
 
     # wavelength range of interest in nm
     wavelength_min = 310
-    wavelength_max = 890
-    wavelength_step = 1
+    wavelength_max = 810
+    wavelength_step = 100
 
     # incident angle in degrees, 0 deg = normal incidence
     th_0 = 0
 
     # name of file containing spectral irradiance for the illumination source
-    illumination = "am15g"
+    illumination = "black-body_5800K"
 
     # spacing for calculating generation profiles
     dx = 1
@@ -819,7 +855,7 @@ if __name__ == "__main__":
 
     show_plots = True
     profiles = True
-    export_data = False
+    export_data = True
 
     calc = run_tmm(
         layers,
@@ -828,10 +864,10 @@ if __name__ == "__main__":
         wavelength_min,
         wavelength_max,
         wavelength_step,
+        active_layer_name,
         th_0,
         s_fraction,
         p_fraction,
-        active_layer,
         show_plots,
         profiles,
         dx,
