@@ -1,5 +1,6 @@
 """Calculate optical absorption and carrier generatation rate in a PV device stack."""
 
+import argparse
 import os
 import pathlib
 import time
@@ -11,6 +12,7 @@ from scipy.interpolate import interp1d
 from scipy.integrate import simpson
 from scipy.constants import Planck, speed_of_light, elementary_charge
 import tmm
+import yaml
 
 
 APPLICATION_FOLDER = pathlib.Path.cwd()
@@ -18,7 +20,7 @@ REFRACTIVE_INDEX_FOLDER = APPLICATION_FOLDER.joinpath("refractive_index")
 ILLUMINATION_FOLDER = APPLICATION_FOLDER.joinpath("illumination")
 INPUT_FOLDER = APPLICATION_FOLDER.joinpath("input")
 OUTPUT_FOLDER = APPLICATION_FOLDER.joinpath("output")
-FILE_EXT = "tsv"
+DATA_FILE_EXT = "tsv"
 
 if OUTPUT_FOLDER.exists() is False:
     os.mkdir(OUTPUT_FOLDER)
@@ -40,22 +42,31 @@ def wavelength_to_energy(wavelength):
     return Planck * speed_of_light / (wavelength * 1e-9)
 
 
-def load_settings(filename):
-    """Load a settings file.
+def load_config(filename):
+    """Load a configuration settings file.
 
-    A settings file is a yaml file whose keys correspond to arguments of the
-    `run_tmm()` function.
+    A configuration settings file is a yaml file whose keys correspond to arguments of
+    the `run_tmm()` function.
 
     Parameters
     ----------
     filename : str
-        Name of settings file.
+        Name of config file.
 
     Returns
-    settings : dict
+    -------
+    config : dict
         Dictionary of settings to be passed to the `run_tmm()` function.
     """
-    pass
+    # load config file
+    path = INPUT_FOLDER.joinpath(f"{filename}")
+    with open(path, encoding="utf-8") as f:
+        config = yaml.load(f, Loader=yaml.SafeLoader)
+
+    # cast elements of d_list to correct type
+    config["d_list"] = [np.inf if d == "inf" else float(d) for d in config["d_list"]]
+
+    return config
 
 
 def load_nk_data(filepath):
@@ -133,7 +144,7 @@ def get_interpolated_n_list(layers):
     # get interpolation objects for refractive indices for each layer
     int_n_list = []
     for layer in layers:
-        path = REFRACTIVE_INDEX_FOLDER.joinpath(f"{layer}.{FILE_EXT}")
+        path = REFRACTIVE_INDEX_FOLDER.joinpath(f"{layer}.{DATA_FILE_EXT}")
         int_n_list.append(load_nk_data(path))
 
     return int_n_list
@@ -415,15 +426,16 @@ def calculate_total_integrated_absorption(
     return np.array(abs_x_int)
 
 
-def plot_rta(rta):
+def plot_rta(rta, layers):
     """Plot cumulative reflection, transmission, and absorption data for all layers.
 
     Parameters
     ----------
     rta : array
         Reflection, transmission, and absorption spectra from tmm calculations.
+    layers : list of str
+        List of layer names.
     """
-    # fig, ax1 = plt.subplots(figsize=(8, 4))
     fig, ax1 = plt.subplots()
 
     cum_sum = np.zeros(np.shape(rta)[0])
@@ -451,7 +463,7 @@ def plot_rta(rta):
     fig.show()
 
 
-def plot_eqe(rta, active_layer_ix, c_list=None, abs_x_int=None):
+def plot_eqe(rta, active_layer_ixs, layers, c_list=None, abs_x_int=None):
     """Plot the ideal external quantum efficiency spectrum.
 
     Assuming internal quantum efficiency is 100%, i.e. all absorbed photons in the
@@ -461,8 +473,10 @@ def plot_eqe(rta, active_layer_ix, c_list=None, abs_x_int=None):
     ----------
     rta : array
         Reflection, transmission, and absorption spectra from tmm calculations.
-    active_layer_ix : int
-        Index of the active layer in the layer list.
+    active_layer_ixs : list
+        List of indices of the active layers in the layer list.
+    layers : list of str
+        List of layer names.
     c_list : list of str
         Coherent ("c")/incoherent ("i") label for each layer in layers.
     abs_x_int : array
@@ -470,20 +484,26 @@ def plot_eqe(rta, active_layer_ix, c_list=None, abs_x_int=None):
         between tmm absorption calculation and position resolved absorption
         calculation.
     """
-    # fig, ax1 = plt.subplots(figsize=(8, 4))
     fig, ax1 = plt.subplots()
 
-    ax1.plot(rta[:, 0], rta[:, active_layer_ix + 1], label="tmm absorption")
-
-    if (c_list is not None) and (abs_x_int is not None):
-        # find number of incoherent layers before active layer to help get index of
-        # active layer in coherent substack
-        inc_preceding = sum(c_list[index] == "i" for index in range(active_layer_ix))
+    for active_layer_ix in active_layer_ixs:
         ax1.plot(
-            abs_x_int[:, 0],
-            abs_x_int[:, active_layer_ix + 1 - inc_preceding],
-            label="integrated absorption profile",
+            rta[:, 0],
+            rta[:, active_layer_ix + 1],
+            label=f"{layers[active_layer_ix]} tmm",
         )
+
+        if (c_list is not None) and (abs_x_int is not None):
+            # find number of incoherent layers before active layer to help get index of
+            # active layer in coherent substack
+            inc_preceding = sum(
+                c_list[index] == "i" for index in range(active_layer_ix)
+            )
+            ax1.plot(
+                abs_x_int[:, 0],
+                abs_x_int[:, active_layer_ix + 1 - inc_preceding],
+                label=f"{layers[active_layer_ix]} profile",
+            )
 
     ax1.set_xlim(np.min(rta[:, 0]), np.max(rta[:, 0]))
     ax1.set_ylim(0, 1)
@@ -505,7 +525,6 @@ def plot_generation_profile(x_list, gen_x):
     gen_x : dict
         Carrier generation rate profiles. Dictionary keys are wavelengths in nm.
     """
-    # fig, ax1 = plt.subplots(figsize=(8, 4))
     fig, ax1 = plt.subplots()
 
     for wavelength, gen_x_wl in gen_x.items():
@@ -537,7 +556,7 @@ def export_rta(rta, layers, timestamp):
     os.mkdir(OUTPUT_FOLDER.joinpath(f"{timestamp}"))
 
     path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
-        f"{timestamp}_rta.{FILE_EXT}"
+        f"{timestamp}_rta.{DATA_FILE_EXT}"
     )
 
     header = "wavelength (nm)\t" + "\t".join(layers)
@@ -560,24 +579,25 @@ def export_generation_profiles(x_list, gen_x, timestamp):
     timestamp : int
         Calculation time stamp.
     """
-    header = "distance (nm)\tG (m^-3)"
-
+    header = "distance (nm)"
+    data = x_list
     for wavelength, gen in gen_x.items():
-        path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
-            f"{timestamp}_G_{wavelength}nm.{FILE_EXT}"
-        )
+        data = np.column_stack((data, gen))
+        header += f"\tG_{wavelength}nm (m^-3)"
 
-        data = np.array([x_list, gen]).T
+    path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
+        f"{timestamp}_G.{DATA_FILE_EXT}"
+    )
 
-        np.savetxt(
-            path,
-            data,
-            header=header,
-            delimiter="\t",
-            newline="\n",
-            comments="",
-            fmt="%.9e",
-        )
+    np.savetxt(
+        path,
+        data,
+        header=header,
+        delimiter="\t",
+        newline="\n",
+        comments="",
+        fmt="%.9e",
+    )
 
 
 def run_tmm(
@@ -587,7 +607,7 @@ def run_tmm(
     wavelength_min,
     wavelength_max,
     wavelength_step,
-    active_layer_name=None,
+    active_layer_names=None,
     th_0=0,
     s_fraction=0.5,
     p_fraction=0.5,
@@ -613,8 +633,9 @@ def run_tmm(
         Upper bound of the wavelength range in nm.
     wavelength_step : float
         Wavelength step between wavelengths in the wavelength range in nm.
-    active_layer_name : str
-        Name of the active layer in the device stack.
+    active_layer_names : list
+        List of active layer (layers that produce photocurrent) names in the device
+        stack.
     th_0 : numeric
         Incident angle in degrees, 0 deg = normal incidence.
     s_fraction : float
@@ -640,17 +661,6 @@ def run_tmm(
     output : dict
         Dictionary of all input settings and output calculations.
     """
-    timestamp = int(time.time())
-
-    # get wavelegnths
-    wavelength_n = int(((wavelength_max - wavelength_min) / wavelength_step) + 1)
-    wavelengths = np.linspace(
-        wavelength_min, wavelength_max, wavelength_n, endpoint=True
-    )
-
-    # load and interpolate layer data
-    int_n_list = get_interpolated_n_list(layers)
-
     # validate polarisation fractions
     if not (
         (s_fraction + p_fraction == 1)
@@ -662,18 +672,35 @@ def run_tmm(
             + "sum to 1."
         )
 
+    timestamp = int(time.time())
+
+    # get wavelegnths
+    wavelength_n = int(((wavelength_max - wavelength_min) / wavelength_step) + 1)
+    wavelengths = np.linspace(
+        wavelength_min, wavelength_max, wavelength_n, endpoint=True
+    )
+
+    # load and interpolate layer data
+    int_n_list = get_interpolated_n_list(layers)
+
     # perform incoherent tmm calculations for each polarisation state as required
     if s_fraction > 0:
         inc_tmm_s = calculate_tmm_spectra(
             int_n_list, d_list, c_list, wavelengths, th_0, "s"
         )
         rta_s = calculate_rta_spectra(inc_tmm_s)
+    else:
+        inc_tmm_s = None
+        rta_s = None
 
     if p_fraction > 0:
         inc_tmm_p = calculate_tmm_spectra(
             int_n_list, d_list, c_list, wavelengths, th_0, "p"
         )
         rta_p = calculate_rta_spectra(inc_tmm_p)
+    else:
+        inc_tmm_p = None
+        rta_p = None
 
     # calculate net RTA accounting for s and p fractions
     if s_fraction == 1:
@@ -723,10 +750,18 @@ def run_tmm(
 
         # calculate x positions for generation profile
         x_list = get_x_list(c_list, d_list, dx)
+    else:
+        abs_x_s = None
+        abs_x_p = None
+        abs_x_int_s = None
+        abs_x_int_p = None
+        x_list = None
 
     # calculate generation profiles for each wavelegnth
     if (profiles is True) and (illumination is not None):
-        illumination_path = ILLUMINATION_FOLDER.joinpath(f"{illumination}.{FILE_EXT}")
+        illumination_path = ILLUMINATION_FOLDER.joinpath(
+            f"{illumination}.{DATA_FILE_EXT}"
+        )
         illumination_data = load_illumination_data(illumination_path)
 
         gen_x_s = {}
@@ -756,22 +791,28 @@ def run_tmm(
             gen_x = calculate_total_generation_profile(
                 gen_x_s, gen_x_p, s_fraction, p_fraction
             )
+    else:
+        illumination_data = None
+        gen_x_s = None
+        gen_x_p = None
+        gen_x = None
 
     # show plots
     if show_plots is True:
         # plot cumulative absorbtion
-        plot_rta(rta)
+        plot_rta(rta, layers)
 
         # look up ideal EQE, i.e. assume 100% IQE
-        if active_layer_name is not None:
+        if active_layer_names is not None:
             # look up active layer index in full stack
-            active_layer_ix = layers.index(active_layer_name)
+            active_layer_ixs = [layers.index(name) for name in active_layer_names]
 
             if profiles is True:
                 # plot eqe compared to integrated absorption profiles
                 plot_eqe(
                     rta,
-                    active_layer_ix,
+                    active_layer_ixs,
+                    layers,
                     c_list,
                     abs_x_int,
                 )
@@ -779,7 +820,8 @@ def run_tmm(
                 # don't attempt to plot integrated absorption
                 plot_eqe(
                     rta,
-                    active_layer_ix,
+                    active_layer_ixs,
+                    layers,
                 )
 
         # plot generation profiles for each wavelength
@@ -805,72 +847,52 @@ def run_tmm(
         "th_0": th_0,
         "s_fraction": s_fraction,
         "p_fraction": p_fraction,
-        "active_layer_name": active_layer_name,
+        "active_layer_names": active_layer_names,
         "show_plots": show_plots,
         "profiles": profiles,
         "dx": profiles,
         "illumination": illumination,
         "export_data": export_data,
+        "inc_tmm_s": inc_tmm_s,
+        "inc_tmm_p": inc_tmm_p,
+        "rta_s": rta_s,
+        "rta_p": rta_p,
+        "rta": rta,
+        "x_list": x_list,
+        "abs_x_s": abs_x_s,
+        "abs_x_p": abs_x_p,
+        "abs_x_int_s": abs_x_int_s,
+        "abs_x_int_p": abs_x_int_p,
+        "illumination_data": illumination_data,
+        "gen_x_s": gen_x_s,
+        "gen_x_p": gen_x_p,
+        "gen_x": gen_x,
     }
 
 
-if __name__ == "__main__":
-    # list of layer names corresponding to file names
-    layers = [
-        "air",
-        "soda_lime_glass",
-        "ito",
-        "ptaa",
-        "wbg-perovskite",
-        "pcbm",
-        "bcp",
-        "au",
-        "air",
-    ]
-    active_layer_name = "wbg-perovskite"
+def get_args():
+    """Get command line arguments.
 
-    # thickness in nm for each layer in layers
-    d_list = [np.inf, 1.1e6, 110, 20, 500, 30, 10, 100, np.inf]
-
-    # coherent ("c")/incoherent ("i") label for each layer in layers
-    c_list = ["i", "i", "c", "c", "c", "c", "c", "c", "i"]
-
-    # wavelength range of interest in nm
-    wavelength_min = 310
-    wavelength_max = 810
-    wavelength_step = 100
-
-    # incident angle in degrees, 0 deg = normal incidence
-    th_0 = 0
-
-    # name of file containing spectral irradiance for the illumination source
-    illumination = "black-body_5800K"
-
-    # spacing for calculating generation profiles
-    dx = 1
-
-    # s and p polarisation state fractions
-    s_fraction = 0.5
-    p_fraction = 0.5
-
-    show_plots = True
-    profiles = True
-    export_data = True
-
-    calc = run_tmm(
-        layers,
-        d_list,
-        c_list,
-        wavelength_min,
-        wavelength_max,
-        wavelength_step,
-        active_layer_name,
-        th_0,
-        s_fraction,
-        p_fraction,
-        show_plots,
-        profiles,
-        dx,
-        illumination,
-        export_data,
+    Returns
+    -------
+    args : namedTuple
+        Command line arguments.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--filename",
+        type=str,
+        help="Name of configuration yaml file, including extension",
     )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    # get cli args, i.e. config filename
+    args = get_args()
+
+    # load config dictionary from yaml file
+    run_tmm_dict = load_config(args.filename)
+
+    # run tmm calculations
+    calc = run_tmm(**run_tmm_dict)
