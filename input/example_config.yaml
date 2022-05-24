@@ -1,0 +1,71 @@
+# list of names layers in the device stack
+# names must match filenames in the "refractive_index" folder, excluding extensions
+# light is incident from the top of the list and travels to the bottom
+layers:
+  - air
+  - soda_lime_glass
+  - ito
+  - ptaa
+  - wbg-perovskite
+  - pcbm
+  - bcp
+  - au
+  - air
+
+# list of active layers (that produce photocurrent) in the device
+active_layer_names:
+  - wbg-perovskite
+
+# list of device layer thicknesses in nm
+# layers of infinite thickness should be labelled "inf"
+d_list:
+  - inf
+  - 1.1e6
+  - 110
+  - 20
+  - 500
+  - 30
+  - 10
+  - 100
+  - inf
+
+# list of device layer coherences (c = coherent, i = incoherent)
+# layers much thickner than the wavelength of light can usually be treated as coherent
+c_list:
+  - i
+  - i
+  - c
+  - c
+  - c
+  - c
+  - c
+  - c
+  - i
+
+# wavelegnth bounds and step size in nm
+wavelength_min: 310
+wavelength_max: 810
+wavelength_step: 50
+
+# angle of incidence in degrees
+th_0: 0
+
+# filename of illumination source in the "illumination" folder, excluding extension
+illumination: black-body_5800K
+
+# spacing in nm at which to calculate profiles
+dx: 1
+
+# s- and p- polarisation state fractions in illumination source
+# both must be in range 0-1 and sum to 1
+s_fraction: 0.5
+p_fraction: 0.5
+
+# decide whether or not to display plots
+show_plots: True
+
+# decide whether or not to calculate profiles, e.g. absorption and generation
+profiles: True
+
+# decide whether or not to export data to "output" folder
+export_data: True

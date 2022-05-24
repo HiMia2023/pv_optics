@@ -135,5 +135,7 @@ illumination/*
 refractive_index/*
 !refractive_index/air.tsv
 
-input/
+input/*
+!input/example_config.yaml
+
 output/
