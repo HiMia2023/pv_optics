@@ -340,8 +340,8 @@ def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
         # only calculate absorption profile for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            n_x = int((thickness / dx) + 1)
-            layer_x_list = np.linspace(0, thickness, n_x)
+            n_x = int((thickness / dx))
+            layer_x_list = np.linspace(0, thickness, n_x, endpoint=False)
             layer_abs_an = inc_find_absorp_analytic_fn(cix, inc_tmm_pol)
 
             # calculate absorption profile
@@ -380,8 +380,8 @@ def get_x_list(c_list, d_list, dx):
         # only calculate positions for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            n_x = int((thickness / dx) + 1)
-            layer_x_list = np.linspace(cum_thickness, cum_thickness + thickness, n_x)
+            n_x = int((thickness / dx))
+            layer_x_list = np.linspace(cum_thickness, cum_thickness + thickness, n_x, endpoint=False)
             x_list = np.concatenate([x_list, layer_x_list])
             cum_thickness += thickness
 
