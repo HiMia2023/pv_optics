@@ -4,13 +4,18 @@ import argparse
 import os
 import pathlib
 import time
+from typing import Dict, List, Tuple, Union, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy
-from scipy.interpolate import interp1d
-from scipy.integrate import simpson
-from scipy.constants import Planck, speed_of_light, elementary_charge
+from numpy.typing import NDArray
+import scipy.interpolate
+import scipy.integrate
+import scipy.constants
+
+# from scipy.interpolate import interp1d
+# from scipy.integrate import simpson
+# from scipy.constants import Planck, speed_of_light
 import tmm
 import yaml
 
@@ -26,12 +31,12 @@ if OUTPUT_FOLDER.exists() is False:
     os.mkdir(OUTPUT_FOLDER)
 
 
-def wavelength_to_energy(wavelength):
+def wavelength_to_energy(wavelength: Union[float, NDArray]) -> Union[float, NDArray]:
     """Convert wavelength/s in nm to energy in eV.
 
     Parameters
     ----------
-    wavelength : float or array
+    wavelength : float or np.array
         Wavelength/s in nm.
 
     Returns
@@ -39,10 +44,10 @@ def wavelength_to_energy(wavelength):
     E : float or array
         Energy/s in J.
     """
-    return Planck * speed_of_light / (wavelength * 1e-9)
+    return scipy.constants.Planck * scipy.constants.speed_of_light / (wavelength * 1e-9)
 
 
-def load_config(filename):
+def load_config(filename: str) -> Dict:
     """Load a configuration settings file.
 
     A configuration settings file is a yaml file whose keys correspond to arguments of
@@ -60,8 +65,8 @@ def load_config(filename):
     """
     # load config file
     path = INPUT_FOLDER.joinpath(f"{filename}")
-    with open(path, encoding="utf-8") as f:
-        config = yaml.load(f, Loader=yaml.SafeLoader)
+    with open(path, encoding="utf-8") as file:
+        config = yaml.load(file, Loader=yaml.SafeLoader)
 
     # cast elements of d_list to correct type
     config["d_list"] = [np.inf if d == "inf" else float(d) for d in config["d_list"]]
@@ -69,7 +74,11 @@ def load_config(filename):
     return config
 
 
-def load_nk_data(filepath):
+def load_nk_data(
+    filepath: Union[str, pathlib.Path]
+) -> Tuple[
+    scipy.interpolate._interpolate.interp1d, scipy.interpolate._interpolate.interp1d
+]:
     """Load and interpolate refractive index data from a file.
 
     Files must be formatted as follows:
@@ -101,7 +110,9 @@ def load_nk_data(filepath):
     return n_int, k_int
 
 
-def load_illumination_data(filepath):
+def load_illumination_data(
+    filepath: pathlib.Path,
+) -> scipy.interpolate._interpolate.interp1d:
     """Load and interpolate illumination data from a file.
 
     Files must be formatted as follows:
@@ -128,7 +139,7 @@ def load_illumination_data(filepath):
     return scipy.interpolate.interp1d(data[:, 0], data[:, 1], kind="cubic")
 
 
-def get_interpolated_n_list(layers):
+def get_interpolated_n_list(layers: List[str]) -> List:
     """Generate list of interpolation objects for each layer.
 
     Parameters
@@ -150,7 +161,14 @@ def get_interpolated_n_list(layers):
     return int_n_list
 
 
-def calculate_tmm_spectra(int_n_list, d_list, c_list, wavelengths, th_0, polarisation):
+def calculate_tmm_spectra(
+    int_n_list: List,
+    d_list: List[float],
+    c_list: List[str],
+    wavelengths,
+    th_0: float,
+    polarisation: str,
+) -> Dict:
     """Perform tmm calculation for each wavelength.
 
     Parameters
@@ -163,7 +181,7 @@ def calculate_tmm_spectra(int_n_list, d_list, c_list, wavelengths, th_0, polaris
         Coherent ("c")/incoherent ("i") label for each layer in layers.
     wavelengths : np.array
         Array of wavelengths in nm at which to perform tmm calculations.
-    th_0 : numeric
+    th_0 : float
         Incident angle in degrees, 0 deg = normal incidence.
     polarisation : str
         Polarisation state: "s" or "p".
@@ -190,7 +208,7 @@ def calculate_tmm_spectra(int_n_list, d_list, c_list, wavelengths, th_0, polaris
     return inc_tmm_pol
 
 
-def calculate_rta_spectra(inc_tmm_pol):
+def calculate_rta_spectra(inc_tmm_pol: Dict) -> NDArray:
     """Caculate absorptance spectra for all layers.
 
     Parameters
@@ -214,7 +232,9 @@ def calculate_rta_spectra(inc_tmm_pol):
     return np.array(rta_pol)
 
 
-def calculate_total_rta_spectra(rta_s, rta_p, s_fraction=0.5, p_fraction=0.5):
+def calculate_total_rta_spectra(
+    rta_s: NDArray, rta_p: NDArray, s_fraction: float = 0.5, p_fraction: float = 0.5
+) -> NDArray:
     """Calcualte total reflection, transmission, and absorption spectra.
 
     This function accounts for the fraction of s- and p- polarised light in the
@@ -222,10 +242,10 @@ def calculate_total_rta_spectra(rta_s, rta_p, s_fraction=0.5, p_fraction=0.5):
 
     Parameters
     ----------
-    rta_s : array
+    rta_s : np.array
         Reflection, transmission, and absorption spectra from tmm calculations for
         s-polarised light.
-    rta_p : array
+    rta_p : np.array
         Reflection, transmission, and absorption spectra from tmm calculations for
         p-polarised light.
     s_fraction : float
@@ -237,7 +257,7 @@ def calculate_total_rta_spectra(rta_s, rta_p, s_fraction=0.5, p_fraction=0.5):
 
     Returns
     -------
-    rta : array
+    rta : np.array
         Reflection, transmission, and absorption spectra from tmm calculations
         accounting for s- and p- polarisation fractions in the illumination source.
     """
@@ -254,8 +274,8 @@ def calculate_total_rta_spectra(rta_s, rta_p, s_fraction=0.5, p_fraction=0.5):
 
 
 def calculate_total_generation_profile(
-    gen_x_s, gen_x_p, s_fraction=0.5, p_fraction=0.5
-):
+    gen_x_s: Dict, gen_x_p: Dict, s_fraction: float = 0.5, p_fraction: float = 0.5
+) -> Dict:
     """Calcualte total carrier generation rate profiles.
 
     This function accounts for the fraction of s- and p- polarised light in the
@@ -312,7 +332,9 @@ def inc_find_absorp_analytic_fn(layer, inc_data):
     return forwardfunc.add(backfunc)
 
 
-def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
+def calculate_absorption_profile(
+    inc_tmm_pol: Dict, c_list: List[str], d_list: List[float], xstep: float
+) -> Tuple[NDArray, NDArray]:
     """Calculate an absorption profile in coherent layers in the stack.
 
     Parameters
@@ -321,9 +343,9 @@ def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
         Incoherent tmm dictionary.
     c_list : list of str
         Coherent ("c")/incoherent ("i") label for each layer in layers.
-    d_list : list of float or int
+    d_list : list of float
         List of thicknesses in nm for each layer in layers.
-    dx : float
+    xstep : float
         Position step in nm.
 
     Returns
@@ -340,7 +362,7 @@ def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
         # only calculate absorption profile for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            n_x = int((thickness / dx))
+            n_x = int((thickness / xstep))
             layer_x_list = np.linspace(0, thickness, n_x, endpoint=False)
             layer_abs_an = inc_find_absorp_analytic_fn(cix, inc_tmm_pol)
 
@@ -357,16 +379,16 @@ def calculate_absorption_profile(inc_tmm_pol, c_list, d_list, dx):
     return abs_x_pol, np.array(abs_x_pol_int)
 
 
-def get_x_list(c_list, d_list, dx):
+def get_x_list(c_list: List[str], d_list: List[float], xstep: float) -> NDArray:
     """Calculate list of x positions used for the generation profile.
 
     Parameters
     ----------
     c_list : list of str
         Coherent ("c")/incoherent ("i") label for each layer in layers.
-    d_list : list of float or int
+    d_list : list of float
         List of thicknesses in nm for each layer in layers.
-    dx : float
+    xstep : float
         Position step in nm.
 
     Returns
@@ -374,14 +396,16 @@ def get_x_list(c_list, d_list, dx):
     x_list : np.array
         X positions in nm at which generation profile is calculated.
     """
-    x_list = []
+    x_list = np.empty(0)
     cum_thickness = 0
     for cix, coh in enumerate(c_list):
         # only calculate positions for coherent layers
         if coh == "c":
             thickness = d_list[cix]
-            n_x = int((thickness / dx))
-            layer_x_list = np.linspace(cum_thickness, cum_thickness + thickness, n_x, endpoint=False)
+            n_x = int((thickness / xstep))
+            layer_x_list = np.linspace(
+                cum_thickness, cum_thickness + thickness, n_x, endpoint=False
+            )
             x_list = np.concatenate([x_list, layer_x_list])
             cum_thickness += thickness
 
@@ -389,8 +413,8 @@ def get_x_list(c_list, d_list, dx):
 
 
 def calculate_total_integrated_absorption(
-    abs_x_int_s, abs_x_int_p, s_fraction, p_fraction
-):
+    abs_x_int_s: Dict, abs_x_int_p: Dict, s_fraction: float, p_fraction: float
+) -> NDArray:
     """Calculate total integrated absorption in a layer from a absorption profile.
 
     This function accounts for the fraction of s- and p- polarised light in the
@@ -426,12 +450,12 @@ def calculate_total_integrated_absorption(
     return np.array(abs_x_int)
 
 
-def plot_rta(rta, layers):
+def plot_rta(rta: NDArray, layers: List[str]):
     """Plot cumulative reflection, transmission, and absorption data for all layers.
 
     Parameters
     ----------
-    rta : array
+    rta : np.array
         Reflection, transmission, and absorption spectra from tmm calculations.
     layers : list of str
         List of layer names.
@@ -463,7 +487,13 @@ def plot_rta(rta, layers):
     fig.show()
 
 
-def plot_eqe(rta, active_layer_ixs, layers, c_list=None, abs_x_int=None):
+def plot_eqe(
+    rta: NDArray,
+    active_layer_ixs: List[int],
+    layers: List[str],
+    c_list: Optional[List[str]] = None,
+    abs_x_int: Optional[NDArray] = None,
+):
     """Plot the ideal external quantum efficiency spectrum.
 
     Assuming internal quantum efficiency is 100%, i.e. all absorbed photons in the
@@ -471,15 +501,15 @@ def plot_eqe(rta, active_layer_ixs, layers, c_list=None, abs_x_int=None):
 
     Parameters
     ----------
-    rta : array
+    rta : np.array
         Reflection, transmission, and absorption spectra from tmm calculations.
-    active_layer_ixs : list
+    active_layer_ixs : list of int
         List of indices of the active layers in the layer list.
     layers : list of str
         List of layer names.
     c_list : list of str
         Coherent ("c")/incoherent ("i") label for each layer in layers.
-    abs_x_int : array
+    abs_x_int : np.array
         Array of integrated position resolved absorption. Used to validate consistency
         between tmm absorption calculation and position resolved absorption
         calculation.
@@ -515,12 +545,12 @@ def plot_eqe(rta, active_layer_ixs, layers, c_list=None, abs_x_int=None):
     fig.show()
 
 
-def plot_generation_profile(x_list, gen_x):
+def plot_generation_profile(x_list: NDArray, gen_x: Dict):
     """Plot generation profiles.
 
     Parameters
     ----------
-    x_list : array
+    x_list : np.array
         X positions in nm at which generation profile is calculated.
     gen_x : dict
         Carrier generation rate profiles. Dictionary keys are wavelengths in nm.
@@ -540,12 +570,12 @@ def plot_generation_profile(x_list, gen_x):
     fig.show()
 
 
-def export_rta(rta, layers, timestamp):
+def export_rta(rta: NDArray, layers: List[str], timestamp: int):
     """Export reflection, transmission, and absorption data.
 
     Parameters
     ----------
-    rta : array
+    rta : np.array
         Reflection, transmission, and absorption spectra from tmm calculations
         accounting for s- and p- polarisation fractions in the illumination source.
     layers : list of str
@@ -566,7 +596,7 @@ def export_rta(rta, layers, timestamp):
     )
 
 
-def export_generation_profiles(x_list, gen_x, timestamp):
+def export_generation_profiles(x_list: NDArray, gen_x, timestamp: int):
     """Export carrier generation rate profiles for all wavelengths.
 
     Parameters
@@ -601,29 +631,29 @@ def export_generation_profiles(x_list, gen_x, timestamp):
 
 
 def run_tmm(
-    layers,
-    d_list,
-    c_list,
-    wavelength_min,
-    wavelength_max,
-    wavelength_step,
-    active_layer_names=None,
-    th_0=0,
-    s_fraction=0.5,
-    p_fraction=0.5,
-    show_plots=True,
-    profiles=True,
-    dx=1,
+    layers: List[str],
+    d_list: List[float],
+    c_list: List[str],
+    wavelength_min: float,
+    wavelength_max: float,
+    wavelength_step: float,
+    active_layer_names: Optional[List[str]] = None,
+    th_0: float = 0,
+    s_fraction: float = 0.5,
+    p_fraction: float = 0.5,
+    show_plots: bool = True,
+    profiles: bool = True,
+    xstep: float = 1,
     illumination=None,
-    export_data=False,
-):
+    export_data: bool = False,
+) -> Dict:
     """Run the transfer matrix calculation.
 
     Parameters
     ----------
     layers : list of str
         List of layer names corresponding to file names.
-    d_list : list of float or int
+    d_list : list of float
         List of thicknesses in nm for each layer in layers.
     c_list : list of str
         Coherent ("c")/incoherent ("i") label for each layer in layers.
@@ -633,10 +663,10 @@ def run_tmm(
         Upper bound of the wavelength range in nm.
     wavelength_step : float
         Wavelength step between wavelengths in the wavelength range in nm.
-    active_layer_names : list
+    active_layer_names : list of str
         List of active layer (layers that produce photocurrent) names in the device
         stack.
-    th_0 : numeric
+    th_0 : float
         Incident angle in degrees, 0 deg = normal incidence.
     s_fraction : float
         Fraction of s-polarised light incident on the stack. The fractions of s- and p-
@@ -648,7 +678,7 @@ def run_tmm(
         Flag indicating whether or not to display plots of calculation output.
     profiles : bool
         Flag indicating whether or not to perform position resolved calculations.
-    dx : float
+    xstep : float
         Position step in nm for position resolved calculations.
     illumination : str or None
         Name of illumination source used for calculating carrier generation rate
@@ -690,8 +720,8 @@ def run_tmm(
         )
         rta_s = calculate_rta_spectra(inc_tmm_s)
     else:
-        inc_tmm_s = None
-        rta_s = None
+        inc_tmm_s = {}
+        rta_s = np.empty(0)
 
     if p_fraction > 0:
         inc_tmm_p = calculate_tmm_spectra(
@@ -699,8 +729,8 @@ def run_tmm(
         )
         rta_p = calculate_rta_spectra(inc_tmm_p)
     else:
-        inc_tmm_p = None
-        rta_p = None
+        inc_tmm_p = {}
+        rta_p = np.empty(0)
 
     # calculate net RTA accounting for s and p fractions
     if s_fraction == 1:
@@ -711,17 +741,17 @@ def run_tmm(
         rta = calculate_total_rta_spectra(rta_s, rta_p, s_fraction, p_fraction)
 
     # calculate absorption profiles
+    abs_x_s = {}
+    abs_x_p = {}
+    abs_x_int_s = {}
+    abs_x_int_p = {}
     if profiles is True:
-        abs_x_s = {}
-        abs_x_p = {}
-        abs_x_int_s = {}
-        abs_x_int_p = {}
         for wavelength in wavelengths:
             # only calculate for a polarisation state if required
             if s_fraction > 0:
                 inc_data = inc_tmm_s[wavelength]
                 abs_x_s_wl, abs_x_int_s_wl = calculate_absorption_profile(
-                    inc_data, c_list, d_list, dx
+                    inc_data, c_list, d_list, xstep
                 )
                 abs_x_s[wavelength] = abs_x_s_wl
                 abs_x_int_s[wavelength] = abs_x_int_s_wl
@@ -729,7 +759,7 @@ def run_tmm(
             if p_fraction > 0:
                 inc_data = inc_tmm_p[wavelength]
                 abs_x_p_wl, abs_x_int_p_wl = calculate_absorption_profile(
-                    inc_data, c_list, d_list, dx
+                    inc_data, c_list, d_list, xstep
                 )
                 abs_x_p[wavelength] = abs_x_p_wl
                 abs_x_int_p[wavelength] = abs_x_int_p_wl
@@ -749,23 +779,20 @@ def run_tmm(
             )
 
         # calculate x positions for generation profile
-        x_list = get_x_list(c_list, d_list, dx)
+        x_list = get_x_list(c_list, d_list, xstep)
     else:
-        abs_x_s = None
-        abs_x_p = None
-        abs_x_int_s = None
-        abs_x_int_p = None
-        x_list = None
+        abs_x_int = np.empty(0)
+        x_list = np.empty(0)
 
     # calculate generation profiles for each wavelegnth
+    gen_x_s = {}
+    gen_x_p = {}
     if (profiles is True) and (illumination is not None):
         illumination_path = ILLUMINATION_FOLDER.joinpath(
             f"{illumination}.{DATA_FILE_EXT}"
         )
         illumination_data = load_illumination_data(illumination_path)
 
-        gen_x_s = {}
-        gen_x_p = {}
         for wavelength in wavelengths:
             # only calculate for a polarisation state if required
             if s_fraction > 0:
@@ -793,9 +820,7 @@ def run_tmm(
             )
     else:
         illumination_data = None
-        gen_x_s = None
-        gen_x_p = None
-        gen_x = None
+        gen_x = {}
 
     # show plots
     if show_plots is True:
@@ -850,7 +875,7 @@ def run_tmm(
         "active_layer_names": active_layer_names,
         "show_plots": show_plots,
         "profiles": profiles,
-        "dx": profiles,
+        "xstep": profiles,
         "illumination": illumination,
         "export_data": export_data,
         "inc_tmm_s": inc_tmm_s,

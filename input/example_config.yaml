@@ -54,7 +54,7 @@ th_0: 0
 illumination: black-body_5800K
 
 # spacing in nm at which to calculate profiles
-dx: 1
+xstep: 0.1
 
 # s- and p- polarisation state fractions in illumination source
 # both must be in range 0-1 and sum to 1
