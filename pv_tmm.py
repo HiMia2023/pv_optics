@@ -538,12 +538,14 @@ def plot_eqe(
     """
     fig, ax1 = plt.subplots()
 
+    eqe_sum = np.zeros(len(rta[:, 0]))
     for active_layer_ix in active_layer_ixs:
         ax1.plot(
             rta[:, 0],
             rta[:, active_layer_ix + 1],
             label=f"{layers[active_layer_ix]} tmm",
         )
+        eqe_sum += rta[:, active_layer_ix + 1]
 
         if (c_list is not None) and (abs_x_int is not None):
             # find number of incoherent layers before active layer to help get index of
@@ -556,6 +558,9 @@ def plot_eqe(
                 abs_x_int[:, active_layer_ix + 1 - inc_preceding],
                 label=f"{layers[active_layer_ix]} profile",
             )
+
+    if len(active_layer_ixs) > 1:
+        ax1.plot(rta[:, 0], eqe_sum, label="sum tmm")
 
     ax1.set_xlim(np.min(rta[:, 0]), np.max(rta[:, 0]))
     ax1.set_ylim(0, 1)
@@ -870,7 +875,6 @@ def run_tmm(
             # look up active layer index in full stack
             active_layer_ixs = [layers.index(name) for name in active_layer_names]
 
-            # TODO: include plot of sum of all active layers
             if profiles is True:
                 # plot eqe compared to integrated absorption profiles
                 plot_eqe(
