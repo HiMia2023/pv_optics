@@ -1021,12 +1021,12 @@ def optimise_thicknesses(
         Dictionary of optimisation output.
     """
 
-    def minimisation_function(d_guess: List[float], *min_args) -> float:
+    def minimisation_function(d_guess: Union[List[float], NDArray], *min_args) -> float:
         """Minimise this function to find optimal thicknesses.
 
         Parameters
         ----------
-        d_guess : list of float
+        d_guess : list of float or np.array
             Latest guess at optimal thickness in nm.
         *min_args : list
             Additional arguments required to define the function.
@@ -1047,6 +1047,7 @@ def optimise_thicknesses(
         s_fraction = min_args[13]
         p_fraction = min_args[14]
         illumination = min_args[15]
+        config_filename = min_args[16]
 
         for optimisation_layer_ix, guess in zip(optimisation_layer_ixs, d_guess):
             d_list[optimisation_layer_ix] = guess
@@ -1058,6 +1059,7 @@ def optimise_thicknesses(
             wavelength_min,
             wavelength_max,
             wavelength_step,
+            config_filename,
             active_layer_names,
             th_0,
             s_fraction,
@@ -1099,6 +1101,7 @@ def optimise_thicknesses(
         s_fraction,
         p_fraction,
         illumination,
+        config_filename,
     )
     d_init = [d_list[opt_layer_ix] for opt_layer_ix in optimisation_layer_ixs]
 
@@ -1109,7 +1112,7 @@ def optimise_thicknesses(
         args=min_args,
         workers=1,
         disp=True,
-        init="halton",
+        init="sobol",
         x0=d_init,
     )
 
@@ -1244,6 +1247,26 @@ if __name__ == "__main__":
             config["illumination"],
             config["export_data"],
         )
+
+        # report integrated Jscs
+        active_layer_ixs = [
+            config["layers"].index(name) for name in config["active_layer_names"]
+        ]
+
+        wavelengths = get_wavelengths(
+            config["wavelength_min"],
+            config["wavelength_max"],
+            config["wavelength_step"],
+        )
+        f_irradiance = load_illumination_data(config["illumination"])
+        irradiance = f_irradiance(wavelengths)
+
+        eqes = [calc["rta"][:, layer_ix + 1] for layer_ix in active_layer_ixs]
+        jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
+
+        print("\nJsc's\n-----")
+        for active_layer_name, jsc in zip(config["active_layer_names"], jscs):
+            print(f"{active_layer_name} Jsc = {jsc} mA/cm^2")
 
     # make sure plot windows don't close
     if config["show_plots"] is True:
