@@ -3,7 +3,7 @@
 import argparse
 import os
 import pathlib
-import profile
+import shutil
 import time
 from typing import Dict, List, Tuple, Union, Optional
 
@@ -81,18 +81,20 @@ def load_config(filename: str) -> Dict:
 
     Returns
     -------
-    config : dict
+    tmm_config : dict
         Dictionary of settings to be passed to the `run_tmm()` function.
     """
     # load config file
     path = INPUT_FOLDER.joinpath(f"{filename}")
     with open(path, encoding="utf-8") as file:
-        config = yaml.load(file, Loader=yaml.SafeLoader)
+        tmm_config = yaml.load(file, Loader=yaml.SafeLoader)
 
     # cast elements of d_list to correct type
-    config["d_list"] = [np.inf if d == "inf" else float(d) for d in config["d_list"]]
+    tmm_config["d_list"] = [
+        np.inf if d == "inf" else float(d) for d in tmm_config["d_list"]
+    ]
 
-    return config
+    return tmm_config
 
 
 def load_nk_data(
@@ -687,6 +689,7 @@ def run_tmm(
     wavelength_min: float,
     wavelength_max: float,
     wavelength_step: float,
+    config_filename: str,
     active_layer_names: Optional[List[str]] = None,
     th_0: float = 0,
     s_fraction: float = 0.5,
@@ -713,6 +716,8 @@ def run_tmm(
         Upper bound of the wavelength range in nm.
     wavelength_step : float
         Wavelength step between wavelengths in the wavelength range in nm.
+    config_filename : str
+        Name of calculation configuration file.
     active_layer_names : list of str
         List of active layer (layers that produce photocurrent) names in the device
         stack.
@@ -902,9 +907,10 @@ def run_tmm(
         if (profiles is True) and (illumination is not None):
             export_generation_profiles(x_list, gen_x, timestamp)
 
-    # make sure plot windows don't close
-    if show_plots is True:
-        plt.show()
+        # copy config into output
+        src = INPUT_FOLDER.joinpath(config_filename)
+        dst = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(config_filename)
+        shutil.copy2(src, dst)
 
     return {
         "layers": layers,
@@ -937,6 +943,7 @@ def run_tmm(
         "gen_x_s": gen_x_s,
         "gen_x_p": gen_x_p,
         "gen_x": gen_x,
+        "timestamp": timestamp,
     }
 
 
@@ -952,6 +959,7 @@ def optimise_thicknesses(
     d_min_list: List[float],
     d_max_list: List[float],
     illumination: str,
+    config_filename: str,
     th_0: float = 0,
     s_fraction: float = 0.5,
     p_fraction: float = 0.5,
@@ -979,9 +987,17 @@ def optimise_thicknesses(
     active_layer_names : list of str
         List of active layer (layers that produce photocurrent) names in the device
         stack.
+    optimisation_layer_names : list of str
+        List of layer names to optimise.
+    d_min_list : List of float
+        List of minimum thicknesses in nm for each layer in optimisation_layer_names.
+    d_max_list : list of float
+        List of maximum thicknesses in nm for each layer in optimisation_layer_names.
     illumination : str
         Name of illumination source used for calculating carrier generation rate
         profiles. If set to `None` the generation profile will not be calculated.
+    config_filename : str
+        Name of calculation configuration file.
     th_0 : float
         Incident angle in degrees, 0 deg = normal incidence.
     s_fraction : float
@@ -1117,6 +1133,7 @@ def optimise_thicknesses(
             wavelength_min,
             wavelength_max,
             wavelength_step,
+            config_filename,
             active_layer_names,
             th_0,
             s_fraction,
@@ -1135,7 +1152,21 @@ def optimise_thicknesses(
         for active_layer_name, jsc in zip(active_layer_names, jscs):
             print(f"{active_layer_name} Jsc = {jsc} mA/cm^2")
 
-        # TODO: export optimisation result to file
+        # export optimsation results
+        if export_data:
+            opt_output_dict = {
+                "optimisation_layer_names": optimisation_layer_names,
+                "optimised_thicknesses": result.x.tolist(),
+                "optimised_jscs": [float(jsc) for jsc in jscs],
+                "optimiser_output": str(result),
+            }
+
+            opt_output_path = OUTPUT_FOLDER.joinpath(
+                f"{opt_output['timestamp']}"
+            ).joinpath(f"{opt_output['timestamp']}_optimisation_output.yaml")
+
+            with open(opt_output_path, "w", encoding="utf-8") as file:
+                yaml.dump(opt_output_dict, file)
 
         return {"result": result, "tmm_output": opt_output}
 
@@ -1183,6 +1214,7 @@ if __name__ == "__main__":
                 config["d_min_list"],
                 config["d_max_list"],
                 config["illumination"],
+                args.filename,
                 config["th_0"],
                 config["s_fraction"],
                 config["p_fraction"],
@@ -1201,6 +1233,7 @@ if __name__ == "__main__":
             config["wavelength_min"],
             config["wavelength_max"],
             config["wavelength_step"],
+            args.filename,
             config["active_layer_names"],
             config["th_0"],
             config["s_fraction"],
@@ -1211,3 +1244,7 @@ if __name__ == "__main__":
             config["illumination"],
             config["export_data"],
         )
+
+    # make sure plot windows don't close
+    if config["show_plots"] is True:
+        plt.show()
