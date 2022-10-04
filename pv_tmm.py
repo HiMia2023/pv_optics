@@ -3,19 +3,17 @@
 import argparse
 import os
 import pathlib
+import profile
 import time
 from typing import Dict, List, Tuple, Union, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
-import scipy.interpolate
-import scipy.integrate
 import scipy.constants
-
-# from scipy.interpolate import interp1d
-# from scipy.integrate import simpson
-# from scipy.constants import Planck, speed_of_light
+import scipy.integrate
+import scipy.interpolate
+import scipy.optimize
 import tmm
 import yaml
 
@@ -45,6 +43,29 @@ def wavelength_to_energy(wavelength: Union[float, NDArray]) -> Union[float, NDAr
         Energy/s in J.
     """
     return scipy.constants.Planck * scipy.constants.speed_of_light / (wavelength * 1e-9)
+
+
+def integrated_jsc(wavelengths: NDArray, eqe: NDArray, irradiance: NDArray) -> float:
+    """Calculate integrated Jsc in mA/cm^2.
+
+    Parameters
+    ----------
+    wavelengths : np.array
+        Array of wavelengths in nm.
+    eqe : np.array
+        Fractional external quantum efficiency spectrum.
+    irradiance : np.array
+        Irradiance spectrum in W/m^2/nm.
+
+    Returns
+    -------
+    jsc : float
+        Short-circuit current density in mA/cm^2.
+    """
+    flux = irradiance / wavelength_to_energy(wavelengths)
+    integrand = scipy.integrate.simpson(eqe * flux, wavelengths)
+
+    return scipy.constants.elementary_charge * integrand * 1000 / 10000
 
 
 def load_config(filename: str) -> Dict:
@@ -111,7 +132,7 @@ def load_nk_data(
 
 
 def load_illumination_data(
-    filepath: pathlib.Path,
+    illumination: str,
 ) -> scipy.interpolate._interpolate.interp1d:
     """Load and interpolate illumination data from a file.
 
@@ -125,16 +146,17 @@ def load_illumination_data(
 
     Parameters
     ----------
-    filepath : pathlib.Path
-        Path to data file.
+    illumination : str or None
+        Name of illumination source used for calculating carrier generation rate
+        profiles.
 
     Returns
     -------
     F_int : scipy.interpolate.interp1d
         Scipy interpolation object for spectral irradiance.
     """
-    # load data
-    data = np.genfromtxt(filepath, skip_header=3, delimiter="\t")
+    illumination_path = ILLUMINATION_FOLDER.joinpath(f"{illumination}.{DATA_FILE_EXT}")
+    data = np.genfromtxt(illumination_path, skip_header=3, delimiter="\t")
 
     return scipy.interpolate.interp1d(data[:, 0], data[:, 1], kind="cubic")
 
@@ -630,6 +652,29 @@ def export_generation_profiles(x_list: NDArray, gen_x, timestamp: int):
     )
 
 
+def get_wavelengths(
+    wavelength_min: float, wavelength_max: float, wavelength_step: float
+) -> NDArray:
+    """Generate wavelengths array.
+
+    Parameters
+    ----------
+    wavelength_min : float
+        Lower bound of the wavelength range in nm.
+    wavelength_max : float
+        Upper bound of the wavelength range in nm.
+    wavelength_step : float
+        Wavelength step between wavelengths in the wavelength range in nm.
+
+    Returns
+    -------
+    wavelengths : np.array
+        Wavelengths in nm.
+    """
+    wavelength_n = int(((wavelength_max - wavelength_min) / wavelength_step) + 1)
+    return np.linspace(wavelength_min, wavelength_max, wavelength_n, endpoint=True)
+
+
 def run_tmm(
     layers: List[str],
     d_list: List[float],
@@ -644,7 +689,7 @@ def run_tmm(
     show_plots: bool = True,
     profiles: bool = True,
     xstep: float = 1,
-    illumination=None,
+    illumination: Optional[str] = None,
     export_data: bool = False,
 ) -> Dict:
     """Run the transfer matrix calculation.
@@ -704,11 +749,7 @@ def run_tmm(
 
     timestamp = int(time.time())
 
-    # get wavelegnths
-    wavelength_n = int(((wavelength_max - wavelength_min) / wavelength_step) + 1)
-    wavelengths = np.linspace(
-        wavelength_min, wavelength_max, wavelength_n, endpoint=True
-    )
+    wavelengths = get_wavelengths(wavelength_min, wavelength_max, wavelength_step)
 
     # load and interpolate layer data
     int_n_list = get_interpolated_n_list(layers)
@@ -788,10 +829,7 @@ def run_tmm(
     gen_x_s = {}
     gen_x_p = {}
     if (profiles is True) and (illumination is not None):
-        illumination_path = ILLUMINATION_FOLDER.joinpath(
-            f"{illumination}.{DATA_FILE_EXT}"
-        )
-        illumination_data = load_illumination_data(illumination_path)
+        illumination_data = load_illumination_data(illumination)
 
         for wavelength in wavelengths:
             # only calculate for a polarisation state if required
@@ -832,6 +870,7 @@ def run_tmm(
             # look up active layer index in full stack
             active_layer_ixs = [layers.index(name) for name in active_layer_names]
 
+            # TODO: include plot of sum of all active layers
             if profiles is True:
                 # plot eqe compared to integrated absorption profiles
                 plot_eqe(
@@ -860,7 +899,8 @@ def run_tmm(
             export_generation_profiles(x_list, gen_x, timestamp)
 
     # make sure plot windows don't close
-    plt.show()
+    if show_plots is True:
+        plt.show()
 
     return {
         "layers": layers,
@@ -869,6 +909,7 @@ def run_tmm(
         "wavelength_min": wavelength_min,
         "wavelength_max": wavelength_max,
         "wavelength_step": wavelength_step,
+        "wavelengths": wavelengths,
         "th_0": th_0,
         "s_fraction": s_fraction,
         "p_fraction": p_fraction,
@@ -895,6 +936,208 @@ def run_tmm(
     }
 
 
+def optimise_thicknesses(
+    layers: List[str],
+    d_list: List[float],
+    c_list: List[str],
+    wavelength_min: float,
+    wavelength_max: float,
+    wavelength_step: float,
+    active_layer_names: List[str],
+    optimisation_layer_names: List[str],
+    d_min_list: List[float],
+    d_max_list: List[float],
+    illumination: str,
+    th_0: float = 0,
+    s_fraction: float = 0.5,
+    p_fraction: float = 0.5,
+    show_plots: bool = True,
+    profiles: bool = True,
+    xstep: float = 1,
+    export_data: bool = False,
+) -> Dict:
+    """Optimise layer thicknesses using transfer matrix calculations.
+
+    Parameters
+    ----------
+    layers : list of str
+        List of layer names corresponding to file names.
+    d_list : list of float
+        List of thicknesses in nm for each layer in layers.
+    c_list : list of str
+        Coherent ("c")/incoherent ("i") label for each layer in layers.
+    wavelength_min : float
+        Lower bound of the wavelength range in nm.
+    wavelength_max : float
+        Upper bound of the wavelength range in nm.
+    wavelength_step : float
+        Wavelength step between wavelengths in the wavelength range in nm.
+    active_layer_names : list of str
+        List of active layer (layers that produce photocurrent) names in the device
+        stack.
+    illumination : str
+        Name of illumination source used for calculating carrier generation rate
+        profiles. If set to `None` the generation profile will not be calculated.
+    th_0 : float
+        Incident angle in degrees, 0 deg = normal incidence.
+    s_fraction : float
+        Fraction of s-polarised light incident on the stack. The fractions of s- and p-
+        polarised light must sum to 1.
+    p_fraction : float
+        Fraction of s-polarised light incident on the stack. The fractions of s- and p-
+        polarised light must sum to 1.
+    show_plots : bool
+        Flag indicating whether or not to display plots of calculation output.
+    profiles : bool
+        Flag indicating whether or not to perform position resolved calculations.
+    xstep : float
+        Position step in nm for position resolved calculations.
+    export_data : bool
+        Flag indicating whether or not to export calculation output to files.
+
+    Returns
+    -------
+    output : dict
+        Dictionary of optimisation output.
+    """
+
+    def minimisation_function(d_guess: List[float], *min_args) -> float:
+        """Minimise this function to find optimal thicknesses.
+
+        Parameters
+        ----------
+        d_guess : list of float
+            Latest guess at optimal thickness in nm.
+        *min_args : list
+            Additional arguments required to define the function.
+        """
+        layers = min_args[0]
+        d_list = min_args[1]
+        c_list = min_args[2]
+        wavelength_min = min_args[3]
+        wavelength_max = min_args[4]
+        wavelength_step = min_args[5]
+        illumination = min_args[6]
+        optimisation_layer_ixs = min_args[7]
+        active_layer_ixs = min_args[8]
+        active_layer_names = min_args[9]
+        wavelengths = min_args[10]
+        irradiance = min_args[11]
+        th_0 = min_args[12]
+        s_fraction = min_args[13]
+        p_fraction = min_args[14]
+        illumination = min_args[15]
+
+        for optimisation_layer_ix, guess in zip(optimisation_layer_ixs, d_guess):
+            d_list[optimisation_layer_ix] = guess
+
+        tmm_output = run_tmm(
+            layers,
+            d_list,
+            c_list,
+            wavelength_min,
+            wavelength_max,
+            wavelength_step,
+            active_layer_names,
+            th_0,
+            s_fraction,
+            p_fraction,
+            show_plots=False,
+            profiles=False,
+            illumination=illumination,
+            export_data=False,
+        )
+
+        eqes = [tmm_output["rta"][:, layer_ix + 1] for layer_ix in active_layer_ixs]
+        jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
+
+        return -min(jscs)
+
+    # calculate derived args required for minimiser
+    active_layer_ixs = [layers.index(name) for name in active_layer_names]
+    optimisation_layer_ixs = [layers.index(name) for name in optimisation_layer_names]
+    wavelengths = get_wavelengths(wavelength_min, wavelength_max, wavelength_step)
+    f_irradiance = load_illumination_data(illumination)
+    irradiance = f_irradiance(wavelengths)
+
+    # set up minimiser arguments
+    bounds = list(zip(d_min_list, d_max_list))
+    min_args = (
+        layers,
+        d_list,
+        c_list,
+        wavelength_min,
+        wavelength_max,
+        wavelength_step,
+        illumination,
+        optimisation_layer_ixs,
+        active_layer_ixs,
+        active_layer_names,
+        wavelengths,
+        irradiance,
+        th_0,
+        s_fraction,
+        p_fraction,
+        illumination,
+    )
+    d_init = [d_list[opt_layer_ix] for opt_layer_ix in optimisation_layer_ixs]
+
+    # run the minimisation
+    result = scipy.optimize.differential_evolution(
+        minimisation_function,
+        bounds=bounds,
+        args=min_args,
+        workers=1,
+        disp=True,
+        init="halton",
+        x0=d_init,
+    )
+
+    # report the results
+    print(result)
+    if result.success:
+        print("\nOptimised thicknesses\n---------------------")
+        for d_res, optimisation_layer_name in zip(result.x, optimisation_layer_names):
+            print(f"{optimisation_layer_name} thickness = {d_res} nm")
+
+        # insert optimal thicknesses into d_list
+        d_opt = d_list
+        for opt_layer_ix, d_res in zip(optimisation_layer_ixs, result.x):
+            d_opt[opt_layer_ix] = d_res
+
+        # calculate tmm for optimised thickness
+        opt_output = run_tmm(
+            layers,
+            d_opt,
+            c_list,
+            wavelength_min,
+            wavelength_max,
+            wavelength_step,
+            active_layer_names,
+            th_0,
+            s_fraction,
+            p_fraction,
+            show_plots,
+            profiles,
+            xstep,
+            illumination,
+            export_data,
+        )
+
+        eqes = [opt_output["rta"][:, layer_ix + 1] for layer_ix in active_layer_ixs]
+        jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
+
+        print("\nOptimised Jsc's\n---------------")
+        for active_layer_name, jsc in zip(active_layer_names, jscs):
+            print(f"{active_layer_name} Jsc = {jsc} mA/cm^2")
+
+        # TODO: export optimisation result to file
+
+        return {"result": result, "tmm_output": opt_output}
+
+    raise ValueError("Optimisation failed!")
+
+
 def get_args():
     """Get command line arguments.
 
@@ -917,7 +1160,50 @@ if __name__ == "__main__":
     args = get_args()
 
     # load config dictionary from yaml file
-    run_tmm_dict = load_config(args.filename)
+    config = load_config(args.filename)
 
     # run tmm calculations
-    calc = run_tmm(**run_tmm_dict)
+    try:
+        # check if running an optimisation
+        if len(config["optimisation_layer_names"]) > 0:
+            print("Running optimisation...\n")
+            calc = optimise_thicknesses(
+                config["layers"],
+                config["d_list"],
+                config["c_list"],
+                config["wavelength_min"],
+                config["wavelength_max"],
+                config["wavelength_step"],
+                config["active_layer_names"],
+                config["optimisation_layer_names"],
+                config["d_min_list"],
+                config["d_max_list"],
+                config["illumination"],
+                config["th_0"],
+                config["s_fraction"],
+                config["p_fraction"],
+                config["show_plots"],
+                config["profiles"],
+                config["xstep"],
+                config["export_data"],
+            )
+    except KeyError as err:
+        print(f"Cannot run optimisation, invalid key: {err}")
+        # not optimising so just do standard tmm
+        calc = run_tmm(
+            config["layers"],
+            config["d_list"],
+            config["c_list"],
+            config["wavelength_min"],
+            config["wavelength_max"],
+            config["wavelength_step"],
+            config["active_layer_names"],
+            config["th_0"],
+            config["s_fraction"],
+            config["p_fraction"],
+            config["show_plots"],
+            config["profiles"],
+            config["xstep"],
+            config["illumination"],
+            config["export_data"],
+        )
