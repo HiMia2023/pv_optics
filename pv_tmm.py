@@ -220,9 +220,15 @@ def calculate_tmm_spectra(
     inc_tmm_pol = {}
     for wavelength in wavelengths:
         # build list of complex refractive indices at current wavelength
-        n_list = [
-            n_int(wavelength) + 1j * k_int(wavelength) for n_int, k_int in int_n_list
-        ]
+        n_list = []
+        for n_int, k_int in int_n_list:
+            n_real = n_int(wavelength)
+            n_imag = k_int(wavelength)
+            if (n_imag < 0) and (np.absolute(n_imag) < 1e-16):
+                # avoid floating point rounding numbers close to 0 to -0 or
+                # -machine precision
+                n_imag = 0
+            n_list.append(n_real + 1j * n_imag)
 
         # perform tmm calculation
         inc_tmm_pol[wavelength] = tmm.inc_tmm(
@@ -1073,7 +1079,10 @@ def optimise_thicknesses(
         eqes = [tmm_output["rta"][:, layer_ix + 1] for layer_ix in active_layer_ixs]
         jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
 
-        return -min(jscs)
+        f_min = -min(jscs)
+        print(d_guess, f_min)
+
+        return f_min
 
     # calculate derived args required for minimiser
     active_layer_ixs = [layers.index(name) for name in active_layer_names]
@@ -1106,6 +1115,8 @@ def optimise_thicknesses(
     d_init = [d_list[opt_layer_ix] for opt_layer_ix in optimisation_layer_ixs]
 
     # run the minimisation
+    t_start = time.time()
+
     result = scipy.optimize.differential_evolution(
         minimisation_function,
         bounds=bounds,
@@ -1114,7 +1125,22 @@ def optimise_thicknesses(
         disp=True,
         init="sobol",
         x0=d_init,
+        polish=False,
     )
+
+    t_de = time.time()
+    print(f"\nDifferential evolution took {t_de - t_start} s\n")
+
+    result = scipy.optimize.minimize(
+        minimisation_function,
+        bounds=bounds,
+        args=min_args,
+        options={"disp": True},
+        x0=result.x,
+        tol=0.005,
+    )
+
+    print(f"\nPolishing took {time.time() - t_de} s\n")
 
     # report the results
     print(result)
@@ -1193,18 +1219,28 @@ def get_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    # get cli args, i.e. config filename
-    args = get_args()
+def main(config_file_name: Optional[str] = None):
+    """Run a transfer matrix calculation based on a configuration file.
+
+    Parameters
+    ----------
+    config_file_name : str, optional
+        Absolute path to config file. If not given, this will be read from the command
+        line argument.
+    """
+    if config_file_name is None:
+        # get cli args, i.e. config filename
+        args = get_args()
+        config_file_name = args.filename
 
     # load config dictionary from yaml file
-    config = load_config(args.filename)
+    config = load_config(config_file_name)
 
     # run tmm calculations
     try:
         # check if running an optimisation
         if len(config["optimisation_layer_names"]) > 0:
-            print("Running optimisation...\n")
+            print("Running optimisation, I may be some time...\n")
             calc = optimise_thicknesses(
                 config["layers"],
                 config["d_list"],
@@ -1217,7 +1253,7 @@ if __name__ == "__main__":
                 config["d_min_list"],
                 config["d_max_list"],
                 config["illumination"],
-                args.filename,
+                config_file_name,
                 config["th_0"],
                 config["s_fraction"],
                 config["p_fraction"],
@@ -1236,7 +1272,7 @@ if __name__ == "__main__":
             config["wavelength_min"],
             config["wavelength_max"],
             config["wavelength_step"],
-            args.filename,
+            config_file_name,
             config["active_layer_names"],
             config["th_0"],
             config["s_fraction"],
@@ -1271,3 +1307,7 @@ if __name__ == "__main__":
     # make sure plot windows don't close
     if config["show_plots"] is True:
         plt.show()
+
+
+if __name__ == "__main__":
+    main()
