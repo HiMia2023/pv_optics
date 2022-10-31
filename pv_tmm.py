@@ -1,6 +1,7 @@
 """Calculate optical absorption and carrier generatation rate in a PV device stack."""
 
 import argparse
+import builtins
 import os
 import pathlib
 import shutil
@@ -914,9 +915,10 @@ def run_tmm(
             export_generation_profiles(x_list, gen_x, timestamp)
 
         # copy config into output
-        src = INPUT_FOLDER.joinpath(config_filename)
-        dst = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(config_filename)
-        shutil.copy2(src, dst)
+        dst = OUTPUT_FOLDER.joinpath(
+            f"{timestamp}", pathlib.Path(config_filename).parts[-1]
+        )
+        shutil.copy2(config_filename, dst)
 
     return {
         "layers": layers,
@@ -1080,7 +1082,7 @@ def optimise_thicknesses(
         jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
 
         f_min = -min(jscs)
-        print(d_guess, f_min)
+        print(f"Latest guess: {d_guess}; Jsc: {-f_min} mA/cm^2")
 
         return f_min
 
@@ -1115,8 +1117,8 @@ def optimise_thicknesses(
     d_init = [d_list[opt_layer_ix] for opt_layer_ix in optimisation_layer_ixs]
 
     # run the minimisation
+    print("Optimising by differential evolution -->")
     t_start = time.time()
-
     result = scipy.optimize.differential_evolution(
         minimisation_function,
         bounds=bounds,
@@ -1219,7 +1221,7 @@ def get_args():
     return parser.parse_args()
 
 
-def main(config_file_name: Optional[str] = None):
+def main(config_file_name: Optional[str] = None, conn=None):
     """Run a transfer matrix calculation based on a configuration file.
 
     Parameters
@@ -1227,6 +1229,9 @@ def main(config_file_name: Optional[str] = None):
     config_file_name : str, optional
         Absolute path to config file. If not given, this will be read from the command
         line argument.
+    conn : multiprocessing.connection.Connection()
+        One end of a pipe for sending messages back to the parent when run as a child
+        process.
     """
     if config_file_name is None:
         # get cli args, i.e. config filename
@@ -1235,6 +1240,10 @@ def main(config_file_name: Optional[str] = None):
 
     # load config dictionary from yaml file
     config = load_config(config_file_name)
+
+    if conn is not None:
+        # overload the print function to send to parent via pipe rather than stdout
+        builtins.print = conn.send
 
     # run tmm calculations
     try:
