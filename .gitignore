@@ -139,3 +139,5 @@ input/*
 !input/example_config.yaml
 
 output/
+
+*.db
