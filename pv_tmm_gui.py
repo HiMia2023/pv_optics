@@ -2,9 +2,9 @@
 
 import collections
 import multiprocessing
-import os
+import webbrowser
+import packaging.version
 import queue
-import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -14,6 +14,8 @@ import time
 import sys
 
 import pv_tmm
+from check_release_version import get_latest_release_version, REPO_URL, RELEASES_URL
+from version import __version__
 
 
 class MainWindow:
@@ -49,13 +51,60 @@ class MainWindow:
 
     def _make_gui(self):
         """Add widgets to the main window."""
-        self.master.title("Transfer matrix simulation")
+        self.master.title(f"Optical modelling and optimisation v{__version__}")
         self.master.option_add("*Font", "TkDefaultFont")
 
         self.FONT_HEIGHT = tkf.Font(font="TkDefaultFont").metrics("linespace")
         self.FONT_WIDTH = tkf.Font(font="TkDefaultFont").measure("0")
         self.PADDING = 2 * self.FONT_WIDTH
         self.OUTPUT_WIDTH = 100 * self.FONT_WIDTH
+
+        # check if latest release on github is newer than currently running version
+        # if so, let the user know
+        latest_release_version = get_latest_release_version()
+        version_label_bg = "#9B9B9B"
+        if latest_release_version is None:
+            self.frm_version = tk.Frame(master=self.master, bg=version_label_bg)
+            self.frm_version.pack(
+                fill="x",
+                expand=False,
+                padx=self.PADDING,
+                pady=(self.PADDING, 0),
+            )
+
+            self.lbl_version_msg = tk.Label(
+                master=self.frm_version,
+                text=(
+                    "Could not determine the latest release version. Please check your"
+                    + " internet connection."
+                ),
+                bg=version_label_bg,
+            )
+            self.lbl_version_msg.pack()
+        elif packaging.version.parse(latest_release_version) > packaging.version.parse(
+            __version__
+        ):
+            self.frm_version = tk.Frame(master=self.master, bg=version_label_bg)
+            self.frm_version.pack(
+                fill="x",
+                expand=False,
+                padx=self.PADDING,
+                pady=(self.PADDING, 0),
+            )
+
+            self.lbl_version_msg = tk.Label(
+                master=self.frm_version,
+                text="NEW VERSION AVAILABLE! Click here to download it.",
+                bg=version_label_bg,
+                fg="blue",
+                cursor="hand2",
+            )
+            self.lbl_version_msg.pack()
+            self.lbl_version_msg.bind(
+                "<Button-1>", lambda e: self.open_url(RELEASES_URL)
+            )
+        else:
+            pass
 
         # set up frames to contain widgets
         self.frm_input = ttk.Frame(master=self.master)
@@ -140,6 +189,16 @@ class MainWindow:
         self.txt_output.configure(state="normal")
         self.txt_output.insert(tk.END, text)
         self.txt_output.configure(state="disabled")
+
+    def open_url(self, url):
+        """Open a new tab in the default web browser at the requested URL.
+
+        Parameters
+        ----------
+        url : str
+            URL to open.
+        """
+        webbrowser.open_new_tab(url)
 
     def get_config_path(self):
         """Get configuration file path."""
