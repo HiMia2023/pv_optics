@@ -1039,6 +1039,7 @@ def optimise_thicknesses(
         *min_args : list
             Additional arguments required to define the function.
         """
+        # unpack args
         layers = min_args[0]
         d_list = min_args[1]
         c_list = min_args[2]

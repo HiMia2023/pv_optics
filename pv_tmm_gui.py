@@ -224,6 +224,8 @@ def main():
     """Run the GUI."""
     app = tk.Tk()
     gui = MainWindow(app)
+    # roughly center the window
+    app.eval("tk::PlaceWindow . center")
     app.mainloop()
 
 
