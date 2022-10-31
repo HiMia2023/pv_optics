@@ -226,6 +226,7 @@ def main():
     gui = MainWindow(app)
     # roughly center the window
     app.eval("tk::PlaceWindow . center")
+    app.iconbitmap("icons/icon_colour.ico")
     app.mainloop()
 
 
