@@ -90,10 +90,42 @@ def load_config(filename: str) -> Dict:
     with open(path, encoding="utf-8") as file:
         tmm_config = yaml.load(file, Loader=yaml.SafeLoader)
 
-    # cast elements of d_list to correct type
-    tmm_config["d_list"] = [
-        np.inf if d == "inf" else float(d) for d in tmm_config["d_list"]
-    ]
+    layers = []
+    d_list = []
+    c_list = []
+    active_layer_names = []
+    optimisation_layer_names = []
+    d_min_list = []
+    d_max_list = []
+    for layer in tmm_config["layers"]:
+        # read required properties
+        layer_name, properties = list(layer.items())[0]
+        layers.append(layer_name)
+        d_list.append(np.inf if properties["d"] == "inf" else float(properties["d"]))
+        c_list.append("c" if properties["coh"] else "i")
+
+        # try to get optional properties
+        try:
+            if properties["active"]:
+                active_layer_names.append(layer_name)
+        except KeyError:
+            pass
+
+        try:
+            d_min_list.append(properties["d_min"])
+            d_max_list.append(properties["d_max"])
+            optimisation_layer_names.append(layer_name)
+        except KeyError:
+            pass
+
+    # add/overwrite lists to dict in format required for subsequent processing
+    tmm_config["layers"] = layers
+    tmm_config["d_list"] = d_list
+    tmm_config["c_list"] = c_list
+    tmm_config["active_layer_names"] = active_layer_names
+    tmm_config["optimisation_layer_names"] = optimisation_layer_names
+    tmm_config["d_min_list"] = d_min_list
+    tmm_config["d_max_list"] = d_max_list
 
     return tmm_config
 
@@ -1235,6 +1267,10 @@ def main(config_file_name: Optional[str] = None, conn=None):
         One end of a pipe for sending messages back to the parent when run as a child
         process.
     """
+    if conn is not None:
+        # overload the print function to send to parent via pipe rather than stdout
+        builtins.print = conn.send
+
     if config_file_name is None:
         # get cli args, i.e. config filename
         args = get_args()
@@ -1243,39 +1279,33 @@ def main(config_file_name: Optional[str] = None, conn=None):
     # load config dictionary from yaml file
     config = load_config(config_file_name)
 
-    if conn is not None:
-        # overload the print function to send to parent via pipe rather than stdout
-        builtins.print = conn.send
-
-    # run tmm calculations
-    try:
-        # check if running an optimisation
-        if len(config["optimisation_layer_names"]) > 0:
-            print("Running optimisation, I may be some time...\n")
-            calc = optimise_thicknesses(
-                config["layers"],
-                config["d_list"],
-                config["c_list"],
-                config["wavelength_min"],
-                config["wavelength_max"],
-                config["wavelength_step"],
-                config["active_layer_names"],
-                config["optimisation_layer_names"],
-                config["d_min_list"],
-                config["d_max_list"],
-                config["illumination"],
-                config_file_name,
-                config["th_0"],
-                config["s_fraction"],
-                config["p_fraction"],
-                config["show_plots"],
-                config["profiles"],
-                config["xstep"],
-                config["export_data"],
-            )
-    except KeyError as err:
-        print(f"Cannot run optimisation, invalid key: {err}")
+    # check if running an optimisation
+    if len(config["optimisation_layer_names"]) > 0:
+        print("Running optimisation, I may be some time...\n")
+        calc = optimise_thicknesses(
+            config["layers"],
+            config["d_list"],
+            config["c_list"],
+            config["wavelength_min"],
+            config["wavelength_max"],
+            config["wavelength_step"],
+            config["active_layer_names"],
+            config["optimisation_layer_names"],
+            config["d_min_list"],
+            config["d_max_list"],
+            config["illumination"],
+            config_file_name,
+            config["th_0"],
+            config["s_fraction"],
+            config["p_fraction"],
+            config["show_plots"],
+            config["profiles"],
+            config["xstep"],
+            config["export_data"],
+        )
+    else:
         # not optimising so just do standard tmm
+        print("Running tmm calculation...\n")
         calc = run_tmm(
             config["layers"],
             config["d_list"],

@@ -1,6 +1,6 @@
-# List of layer names in the device stack. Names must match filenames in the
-# "refractive_index" folder, excluding extensions. Light is incident from the top of
-# the list and travels to the bottom.
+# List of names layers in the device stack.
+# Names must match filenames in the "refractive_index" folder, excluding extensions.
+# Light is incident from the top of the list and travels to the bottom.
 # Each layer has the following properties with the following meanings:
 #   "d" = layer thickness in nm
 #   "coh" = coherent i.e. interference is relevant in this layer (True or False)
@@ -19,18 +19,32 @@ layers:
   - ito:
       d: 110
       coh: True
-  - ptaa:
+  - pedot_pss:
       d: 20
       coh: True
   - fake_1.72eV_perovskite:
       d: 500
       coh: True
       active: True
-  - pcbm:
+      d_min: 10
+      d_max: 1000
+  - c60:
       d: 30
       coh: True
-  - bcp:
+  - ito:
       d: 10
+      coh: True
+  - pedot_pss:
+      d: 20
+      coh: True
+  - fake_1.2eV_perovskite:
+      d: 500
+      coh: True
+      active: True
+      d_min: 10
+      d_max: 1000
+  - c60:
+      d: 30
       coh: True
   - au:
       d: 100
@@ -41,8 +55,8 @@ layers:
 
 # wavelegnth bounds and step size in nm
 wavelength_min: 310
-wavelength_max: 810
-wavelength_step: 50
+wavelength_max: 1095
+wavelength_step: 1
 
 # angle of incidence in degrees
 th_0: 0
@@ -62,7 +76,7 @@ p_fraction: 0.5
 show_plots: True
 
 # decide whether or not to calculate profiles, e.g. absorption and generation
-profiles: True
+profiles: False
 
 # decide whether or not to export data to "output" folder
-export_data: True
+export_data: False
