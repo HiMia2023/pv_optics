@@ -1125,6 +1125,7 @@ def optimise_thicknesses(
         bounds=bounds,
         args=min_args,
         workers=1,
+        seed=1,
         disp=True,
         init="sobol",
         x0=d_init,

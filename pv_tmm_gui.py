@@ -2,20 +2,50 @@
 
 import collections
 import multiprocessing
-import webbrowser
-import packaging.version
+import multiprocessing.popen_spawn_win32 as forking
+import os
 import queue
+import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkf
 from tkinter.filedialog import askopenfilename
-import time
-import sys
+import webbrowser
+import packaging.version
 
 import pv_tmm
-from check_release_version import get_latest_release_version, REPO_URL, RELEASES_URL
+from check_release_version import get_latest_release_version, RELEASES_URL
 from version import __version__
+
+
+# boilerplate to get multiprocessing working with pyinstaller on Windows using
+# --onefile option
+# from https://github.com/pyinstaller/pyinstaller/wiki/Recipe-Multiprocessing
+# and https://stackoverflow.com/a/27694505
+class _Popen(forking.Popen):
+    def __init__(self, *args, **kw):
+        if hasattr(sys, "frozen"):
+            # We have to set original _MEIPASS2 value from sys._MEIPASS
+            # to get --onefile mode working.
+            os.putenv("_MEIPASS2", sys._MEIPASS)
+        try:
+            super(_Popen, self).__init__(*args, **kw)
+        finally:
+            if hasattr(sys, "frozen"):
+                # On some platforms (e.g. AIX) 'os.unsetenv()' is not
+                # available. In those cases we cannot delete the variable
+                # but only set it to the empty string. The bootloader
+                # can handle this case.
+                if hasattr(os, "unsetenv"):
+                    os.unsetenv("_MEIPASS2")
+                else:
+                    os.putenv("_MEIPASS2", "")
+
+
+class Process(multiprocessing.Process):
+    _Popen = _Popen
 
 
 class MainWindow:
@@ -227,7 +257,7 @@ class MainWindow:
 
             if msg == "start":
                 # run task in a separate process so it can be stopped
-                proc = multiprocessing.Process(
+                proc = Process(
                     target=pv_tmm.main,
                     args=(
                         self.ent_filename.get(),
@@ -290,4 +320,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # calling this function immediately after if name == main is necessary to get
+    # multiprocessing working with pyinstaller in --onefile mode
+    multiprocessing.freeze_support()
+
+    # run gui
     main()
