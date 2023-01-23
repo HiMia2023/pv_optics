@@ -42,7 +42,7 @@ layers:
 # wavelegnth bounds and step size in nm
 wavelength_min: 310
 wavelength_max: 810
-wavelength_step: 50
+wavelength_step: 10
 
 # angle of incidence in degrees
 th_0: 0

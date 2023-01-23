@@ -371,6 +371,42 @@ def calculate_total_generation_profile(
     }
 
 
+def calculate_integrated_generation_profile(
+    x_list: NDArray, gen_x: Dict, c_list: List[str], irradiance: NDArray, rta: NDArray
+) -> NDArray:
+    """Calculate the generation profile integrated over all wavelengths.
+
+    Parameters
+    ----------
+    x_list : np.array
+        X positions in nm at which generation profile is calculated.
+    gen_x : dict
+        Carrier generation rate profiles. Dictionary keys are wavelengths in nm.
+    c_list : list of str
+        Coherent ("c")/incoherent ("i") label for each layer in layers.
+    irradiance : np.array
+        Irradiance spectrum in W/m^2/nm.
+    rta : np.array
+        Reflection, transmission, and absorption spectra from tmm calculations.
+
+    Returns
+    -------
+    gen_x_int : np.array
+        Generation profile integrated over all wavelenths.
+    """
+    wavelengths = []
+    gen_xs = []
+    for wavelength, gen in gen_x.items():
+        wavelengths.append(wavelength)
+        gen_xs.append(gen)
+
+    # convert to numpy arrays
+    wavelengths = np.array(wavelengths)
+    gen_xs = np.array(gen_xs)
+
+    return scipy.integrate.simpson(gen_xs, wavelengths, axis=0)
+
+
 # replaces equivalent broken function in tmm module
 def inc_find_absorp_analytic_fn(layer, inc_data):
     """
@@ -400,6 +436,10 @@ def calculate_absorption_profile(
 ) -> Tuple[NDArray, NDArray]:
     """Calculate an absorption profile in coherent layers in the stack.
 
+    According to the paper (https://arxiv.org/pdf/1603.02720.pdf), the absorption
+    profile calculated here using the analytical expression in section 4.5 is absorbed
+    energy density as a multiple of incident power, in units of 1/[length].
+
     Parameters
     ----------
     inc_tmm_pol : dict
@@ -414,8 +454,8 @@ def calculate_absorption_profile(
     Returns
     -------
     abs_x_pol : np.array
-        Position resolved absorption through the thickness of coherent layers in the
-        stack.
+        Position resolved absorbed energy density through the thickness of coherent
+        layers in the stack, as a multiple of incident power, in units of 1/[length].
     abs_x_pol_int : np.array
         Integrated absorption profile in each coherent layer.
     """
@@ -613,7 +653,7 @@ def plot_eqe(
     fig.show()
 
 
-def plot_generation_profile(x_list: NDArray, gen_x: Dict):
+def plot_generation_profile(x_list: NDArray, gen_x: Dict, gen_x_int: NDArray):
     """Plot generation profiles.
 
     Parameters
@@ -622,15 +662,42 @@ def plot_generation_profile(x_list: NDArray, gen_x: Dict):
         X positions in nm at which generation profile is calculated.
     gen_x : dict
         Carrier generation rate profiles. Dictionary keys are wavelengths in nm.
+    gen_x_int : np.array
+        Generation profile integrated over all wavelenths.
     """
+    # plot profiles for each wavelength
     fig, ax1 = plt.subplots()
 
-    for wavelength, gen_x_wl in gen_x.items():
-        ax1.plot(x_list, gen_x_wl, label=f"{wavelength} nm")
+    if len(gen_x) >= 10:
+        wavelengths = list(gen_x.keys())
+        gen_x_wl_arr = np.zeros((len(wavelengths), len(gen_x[wavelengths[0]])))
+        for index, gen_x_wl in enumerate(gen_x.values()):
+            gen_x_wl_arr[index, :] = gen_x_wl
 
+        mesh = ax1.pcolormesh(x_list, wavelengths, gen_x_wl_arr)
+        fig.colorbar(mesh, ax=ax1)
+        ax1.set_ylabel("Wavelength (nm)")
+        ax1.set_xlabel("Distance (nm)")
+        ax1.set_title("Carrier generation rate (/s/m^3/nm)")
+    else:
+        for wavelength, gen_x_wl in gen_x.items():
+            ax1.plot(x_list, gen_x_wl, label=f"{wavelength} nm")
+
+        ax1.set_xlim(np.min(x_list), np.max(x_list))
+        ax1.set_ylim(0)
+        ax1.set_ylabel("Carrier generation rate (/s/m^3/nm)")
+        ax1.set_xlabel("Distance (nm)")
+        ax1.legend(loc="upper left", bbox_to_anchor=(1.01, 1))
+
+    fig.tight_layout()
+    fig.show()
+
+    # plot integrated profile
+    fig, ax1 = plt.subplots()
+    ax1.plot(x_list, gen_x_int, label="integrated")
     ax1.set_xlim(np.min(x_list), np.max(x_list))
     ax1.set_ylim(0)
-    ax1.set_ylabel("Carrier generation rate (m^-3)")
+    ax1.set_ylabel("Carrier generation rate (/s/m^3)")
     ax1.set_xlabel("Distance (nm)")
     ax1.legend(loc="upper left", bbox_to_anchor=(1.01, 1))
 
@@ -664,7 +731,9 @@ def export_rta(rta: NDArray, layers: List[str], timestamp: int):
     )
 
 
-def export_generation_profiles(x_list: NDArray, gen_x, timestamp: int):
+def export_generation_profiles(
+    x_list: NDArray, gen_x: Dict, gen_x_int: NDArray, timestamp: int
+):
     """Export carrier generation rate profiles for all wavelengths.
 
     Parameters
@@ -674,6 +743,8 @@ def export_generation_profiles(x_list: NDArray, gen_x, timestamp: int):
     gen_x : dict
         Carrier generation rate profile accounting for s- and p- polarisation fractions
         in the illumination source.
+    gen_x_int : np.array
+        Generation profile integrated over all wavelenths.
     timestamp : int
         Calculation time stamp.
     """
@@ -682,6 +753,9 @@ def export_generation_profiles(x_list: NDArray, gen_x, timestamp: int):
     for wavelength, gen in gen_x.items():
         data = np.column_stack((data, gen))
         header += f"\tG_{wavelength}nm (m^-3)"
+
+    data = np.column_stack((data, gen_x_int))
+    header += "\tG_integrated (m^-3)"
 
     path = OUTPUT_FOLDER.joinpath(f"{timestamp}").joinpath(
         f"{timestamp}_G.{DATA_FILE_EXT}"
@@ -905,9 +979,15 @@ def run_tmm(
             gen_x = calculate_total_generation_profile(
                 gen_x_s, gen_x_p, s_fraction, p_fraction
             )
+
+        # calculate integrated generation profile
+        gen_x_int = calculate_integrated_generation_profile(
+            x_list, gen_x, c_list, illumination_data(wavelengths), rta
+        )
     else:
         illumination_data = None
         gen_x = {}
+        gen_x_int = np.array([])
 
     # show plots
     if show_plots is True:
@@ -938,19 +1018,19 @@ def run_tmm(
 
         # plot generation profiles for each wavelength
         if (profiles is True) and (illumination is not None):
-            plot_generation_profile(x_list, gen_x)
+            plot_generation_profile(x_list, gen_x, gen_x_int)
 
     if export_data is True:
         export_rta(rta, layers, timestamp)
 
         if (profiles is True) and (illumination is not None):
-            export_generation_profiles(x_list, gen_x, timestamp)
+            export_generation_profiles(x_list, gen_x, gen_x_int, timestamp)
 
         # copy config into output
         dst = OUTPUT_FOLDER.joinpath(
             f"{timestamp}", pathlib.Path(config_filename).parts[-1]
         )
-        shutil.copy2(config_filename, dst)
+        shutil.copy2(INPUT_FOLDER.joinpath(config_filename), dst)
 
     return {
         "layers": layers,
@@ -983,6 +1063,7 @@ def run_tmm(
         "gen_x_s": gen_x_s,
         "gen_x_p": gen_x_p,
         "gen_x": gen_x,
+        "gen_x_int": gen_x_int,
         "timestamp": timestamp,
     }
 
@@ -1115,7 +1196,10 @@ def optimise_thicknesses(
         jscs = [integrated_jsc(wavelengths, eqe, irradiance) for eqe in eqes]
 
         f_min = -min(jscs)
-        print(f"Latest guess: {d_guess}; Jsc: {-f_min} mA/cm^2")
+        print(
+            f"Trial thicknesses: {[round(guess, 2) for guess in d_guess]}; Min Jsc: "
+            + f"{round(-f_min, 2)} mA/cm^2"
+        )
 
         return f_min
 
@@ -1150,7 +1234,7 @@ def optimise_thicknesses(
     d_init = [d_list[opt_layer_ix] for opt_layer_ix in optimisation_layer_ixs]
 
     # run the minimisation
-    print("Optimising by differential evolution -->")
+    print("Optimising by differential evolution (truncated displayed precision) -->")
     t_start = time.time()
     result = scipy.optimize.differential_evolution(
         minimisation_function,
@@ -1255,14 +1339,14 @@ def get_args():
     return parser.parse_args()
 
 
-def main(config_file_name: Optional[str] = None, conn=None):
+def main(config_file_name: str = "", conn=None):
     """Run a transfer matrix calculation based on a configuration file.
 
     Parameters
     ----------
-    config_file_name : str, optional
-        Absolute path to config file. If not given, this will be read from the command
-        line argument.
+    config_file_name : str
+        Absolute path to config file. If left as an empty string, this will be read
+        from the command line argument.
     conn : multiprocessing.connection.Connection()
         One end of a pipe for sending messages back to the parent when run as a child
         process.
@@ -1271,7 +1355,7 @@ def main(config_file_name: Optional[str] = None, conn=None):
         # overload the print function to send to parent via pipe rather than stdout
         builtins.print = conn.send
 
-    if config_file_name is None:
+    if config_file_name == "":
         # get cli args, i.e. config filename
         args = get_args()
         config_file_name = args.filename

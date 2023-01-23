@@ -82,7 +82,7 @@ class MainWindow:
     def _make_gui(self):
         """Add widgets to the main window."""
         self.master.title(f"Optical modelling and optimisation v{__version__}")
-        self.master.option_add("*Font", "TkDefaultFont")
+        # self.master.option_add("*Font", "TkDefaultFont")
 
         self.FONT_HEIGHT = tkf.Font(font="TkDefaultFont").metrics("linespace")
         self.FONT_WIDTH = tkf.Font(font="TkDefaultFont").measure("0")
