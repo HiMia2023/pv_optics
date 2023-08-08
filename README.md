@@ -10,15 +10,13 @@ Create and activate a new virtual environment e.g. using [conda](https://conda.i
 cd C:\Users\Name\Documents\Git\pv_optics
 ```
 
-. The exact path you use here will depend on where the pv_optics folder is located on your computer.
+The exact path you use here will depend on where the pv_optics folder is located on your computer.
 
 Then install the dependencies of the program into the virtual environment using:
 
 ```
 pip install -r requirements.txt
 ```
-
-.
 
 ## Usage
 
@@ -40,8 +38,6 @@ From the command line, navigate to the pv_optics folder and activate the Python 
 python pv_optics_gui.py
 ```
 
-.
-
 ### Non-GUI
 
 From the command line, navigate to the pv_optics folder and activate the Python virtual environment created above. Then run without the GUI by calling:
@@ -50,7 +46,7 @@ From the command line, navigate to the pv_optics folder and activate the Python 
 python pv_optics.py --filename [config_file_name.yaml]
 ```
 
-, where `[config_file_name.yaml]` is the name of the simulation configuration file to run, which must be located in the "input" folder.
+where `[config_file_name.yaml]` is the name of the simulation configuration file to run, which must be located in the "input" folder.
 
 ### Output files
 
