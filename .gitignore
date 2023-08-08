@@ -133,7 +133,7 @@ illumination/*
 !illumination/black-body_5800K.tsv
 
 refractive_index/*
-!refractive_index/air.tsv
+!refractive_index/example_*.tsv
 
 input/*
 !input/example_*.yaml
@@ -141,3 +141,5 @@ input/*
 output/
 
 *.db
+
+.vscode/

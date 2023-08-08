@@ -1,8 +1,8 @@
-# List of names layers in the device stack.
-# Names must match filenames in the "refractive_index" folder, excluding extensions.
-# Light is incident from the top of the list and travels to the bottom.
+# List of layer names in the device stack. Layer names must match filenames in the
+# "refractive_index" folder, excluding extensions.
+# Light is incident from the layer at the top of the list and travels to the bottom.
 # Each layer has the following properties with the following meanings:
-#   "d" = layer thickness in nm
+#   "d" = layer thickness in nm or inf (infinity), e.g. for the first and last layers
 #   "coh" = coherent i.e. interference is relevant in this layer (True or False)
 #   "active" = layer produces extractable current (True or False), optional [default=False]
 #   "d_min" = lower thickness bound in nm for optimisation of layer, optional
@@ -10,40 +10,37 @@
 # If both d_min and d_max are given, the layer thickness will be optimised using d as
 # an initial guess. Otherwise the layer thickness will not be optimised.
 layers:
-  - air:
+  - example_air:
       d: inf
       coh: False
-  - soda_lime_glass:
+  - example_glass:
       d: 1.1e6
       coh: False
-  - ito:
+  - example_tco:
       d: 110
       coh: True
-  - ptaa:
+  - example_etl:
       d: 20
       coh: True
-  - fake_1.72eV_perovskite:
+  - example_lbg:
       d: 500
       coh: True
       active: True
       d_min: 10
       d_max: 1000
-  - pcbm:
+  - example_htl:
       d: 30
       coh: True
-  - bcp:
-      d: 10
-      coh: True
-  - au:
+  - example_metal:
       d: 100
       coh: True
-  - air:
+  - example_air:
       d: inf
       coh: False
 
 # wavelegnth bounds and step size in nm
-wavelength_min: 310
-wavelength_max: 810
+wavelength_min: 300
+wavelength_max: 1100
 wavelength_step: 1
 
 # angle of incidence in degrees
@@ -57,6 +54,7 @@ xstep: 0.1
 
 # s- and p- polarisation state fractions in illumination source
 # both must be in range 0-1 and sum to 1
+# unpolarised light, e.g. sunlight, has s_fraction = p_fraction = 0.5
 s_fraction: 0.5
 p_fraction: 0.5
 
