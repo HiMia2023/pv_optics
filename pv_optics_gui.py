@@ -1,4 +1,4 @@
-"""GUI for running pv_tmm."""
+"""GUI for running pv_optics."""
 
 import collections
 import multiprocessing
@@ -15,7 +15,7 @@ from tkinter.filedialog import askopenfilename
 import webbrowser
 import packaging.version
 
-import pv_tmm
+import pv_optics
 from check_release_version import get_latest_release_version, RELEASES_URL
 from version import __version__
 
@@ -258,7 +258,7 @@ class MainWindow:
             if msg == "start":
                 # run task in a separate process so it can be stopped
                 proc = Process(
-                    target=pv_tmm.main,
+                    target=pv_optics.main,
                     args=(
                         self.ent_filename.get(),
                         self.child_conn,
