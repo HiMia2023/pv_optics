@@ -91,3 +91,7 @@ In the bottom left corner of each plot window there are a few tools for manipula
 If selected in the configuration file, the output data created by a simulation/optimisation can be saved for further processing without needing to re-run the simulation. This data can be found in the "output" folder, which is automatically created on first use of the program. Each time a simulation is run and data output is required, a new data folder is created, which is named with the timestamp corresponding to the start of the simulation. Data is never overwritten.
 
 The saved data can include: the reflection, absorption, and transmission data for each layer (the data shown in Figure 1, which includes the data shown in Figure 2), which will be in the \*\_rta.tsv file; the carrier generation rate profiles at each wavelength (the data shown in Figure 3), which will be in the \*\_G.tsv file; and the optimisation output data, which will be in the \*\_optimisation_output.yaml file. A copy of the configuration file used to generate the output is also saved there so even if the original file is modified, there's always a record of how the data in a folder was created.
+
+### Optimisations
+
+Thickness optimisation runs can take a long time. You should expect that it will take several minutes to optimise the thickness of one or two layers, but it could take several hours to optimise more layers than that.
